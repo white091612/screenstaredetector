@@ -138,6 +138,13 @@ class GazeEstimator:
             yaw = angles[1]  # 좌우 (Y축 회전)
             roll = angles[2]  # 기울기 (Z축 회전)
 
+            # RQDecomp3x3 각도 정규화
+            # 정면을 보는데 pitch가 ±180° 부근으로 나오는 분해 오류 보정
+            if pitch > 90:
+                pitch = 180 - pitch
+            elif pitch < -90:
+                pitch = -180 - pitch
+
             # 바운딩 박스 계산 (전체 랜드마크 기반 + 여백)
             xs = [lm.x * w for lm in face_landmarks.landmark]
             ys = [lm.y * h for lm in face_landmarks.landmark]
