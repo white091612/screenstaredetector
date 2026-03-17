@@ -9,6 +9,7 @@ import importlib.util
 import os
 import pickle
 import logging
+import time
 
 import cv2
 import numpy as np
@@ -108,6 +109,16 @@ class FaceRecognizer:
         os.makedirs(face_data_dir, exist_ok=True)
         self._load()
 
+        # MediaPipe Face Detection 인스턴스 재사용 (매번 생성하지 않음)
+        self._mp_face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=1,  # full-range: ~5m, ±60°
+            min_detection_confidence=0.5,
+        )
+
+        # 인식 결과 캐시 (bbox 위치 기반)
+        self._cache = {}          # {bbox_key: (name_or_None, timestamp)}
+        self._cache_ttl = 2.0     # 캐시 유효 시간 (초)
+
     @property
     def _encoding_file(self):
         return os.path.join(self.face_data_dir, "encodings.pkl")
@@ -154,34 +165,23 @@ class FaceRecognizer:
         """
         여러 방법으로 얼굴을 감지합니다. (옆모습 포함)
 
-        감지 순서:
-          1) HOG — 빠름, 정면 전용
-          2) CNN — 느리지만 더 넓은 각도 (dlib CNN 모델 필요)
-          3) MediaPipe Face Detection — 넓은 각도(±60°), GPU 불필요
+        감지 순서 (성능 최적화):
+          1) MediaPipe Face Detection — 가장 빠르고 넓은 각도(±60°)
+          2) HOG — 정면 보완
+        CNN은 CPU에서 ~3초로 너무 느려 제외함.
 
         Returns:
             list of (top, right, bottom, left) — face_recognition 형식
         """
-        # 1) HOG (fast, frontal)
-        locations = self.face_recognition.face_locations(rgb_image, model="hog")
+        # 1) MediaPipe (fastest, widest angle)
+        locations = self._detect_faces_mediapipe(rgb_image)
         if locations:
             return locations
 
-        # 2) CNN (slower, wider angle)
-        try:
-            locations = self.face_recognition.face_locations(
-                rgb_image, model="cnn"
-            )
-            if locations:
-                logger.debug("CNN 모델로 얼굴 감지 성공")
-                return locations
-        except Exception:
-            pass  # CNN model not available
-
-        # 3) MediaPipe Face Detection (widest angle coverage)
-        locations = self._detect_faces_mediapipe(rgb_image)
+        # 2) HOG (frontal backup)
+        locations = self.face_recognition.face_locations(rgb_image, model="hog")
         if locations:
-            logger.debug("MediaPipe로 얼굴 감지 성공 (옆모습 포함 가능)")
+            logger.debug("HOG로 얼굴 감지 성공")
             return locations
 
         return []
@@ -189,7 +189,7 @@ class FaceRecognizer:
     def _detect_faces_mediapipe(self, rgb_image):
         """
         MediaPipe Face Detection으로 얼굴 위치를 감지합니다.
-        model_selection=1 (full-range model) 은 최대 ~5m, ±60° 각도를 지원합니다.
+        클래스 레벨에서 인스턴스를 재사용하여 초기화 오버헤드를 제거합니다.
 
         Returns:
             list of (top, right, bottom, left) — face_recognition 형식
@@ -197,38 +197,42 @@ class FaceRecognizer:
         h, w = rgb_image.shape[:2]
         locations = []
 
-        with mp.solutions.face_detection.FaceDetection(
-            model_selection=1,  # 0=근거리(2m), 1=원거리(5m)+넓은 각도
-            min_detection_confidence=0.5,
-        ) as face_detection:
-            results = face_detection.process(rgb_image)
-            if not results.detections:
-                return locations
+        results = self._mp_face_detection.process(rgb_image)
+        if not results.detections:
+            return locations
 
-            for det in results.detections:
-                bbox = det.location_data.relative_bounding_box
-                x = bbox.xmin * w
-                y = bbox.ymin * h
-                bw = bbox.width * w
-                bh = bbox.height * h
+        for det in results.detections:
+            bbox = det.location_data.relative_bounding_box
+            x = bbox.xmin * w
+            y = bbox.ymin * h
+            bw = bbox.width * w
+            bh = bbox.height * h
 
-                # 바운딩 박스에 15% 여유분 추가 (인코딩 품질 향상)
-                pad_x = bw * 0.15
-                pad_y = bh * 0.15
+            # 바운딩 박스에 15% 여유분 추가 (인코딩 품질 향상)
+            pad_x = bw * 0.15
+            pad_y = bh * 0.15
 
-                top = max(0, int(y - pad_y))
-                right = min(w, int(x + bw + pad_x))
-                bottom = min(h, int(y + bh + pad_y))
-                left = max(0, int(x - pad_x))
+            top = max(0, int(y - pad_y))
+            right = min(w, int(x + bw + pad_x))
+            bottom = min(h, int(y + bh + pad_y))
+            left = max(0, int(x - pad_x))
 
-                # face_recognition 형식: (top, right, bottom, left)
-                locations.append((top, right, bottom, left))
+            locations.append((top, right, bottom, left))
 
         return locations
+
+    def _bbox_cache_key(self, bbox, grid=50):
+        """
+        bbox를 그리드로 양자화하여 캐시 키를 생성합니다.
+        비슷한 위치의 얼굴을 같은 사람으로 간주하여 재인코딩을 방지합니다.
+        """
+        t, r, b, l = bbox
+        return (t // grid, r // grid, b // grid, l // grid)
 
     def is_registered_user(self, frame, face_bbox):
         """
         지정된 위치의 얼굴이 등록된 사용자인지 확인합니다.
+        위치 기반 캐시로 동일 얼굴의 반복 인코딩을 방지합니다.
 
         Args:
             frame: BGR 이미지 (numpy array)
@@ -239,6 +243,19 @@ class FaceRecognizer:
         """
         if not self.known_encodings:
             return False, None
+
+        # 캐시 확인: 비슷한 위치의 얼굴이 최근에 인식됐다면 재사용
+        now = time.time()
+        cache_key = self._bbox_cache_key(face_bbox)
+        if cache_key in self._cache:
+            cached_name, cached_time = self._cache[cache_key]
+            if now - cached_time < self._cache_ttl:
+                is_reg = cached_name is not None
+                logger.debug(
+                    f"캐시 사용: {'registered' if is_reg else 'unknown'} "
+                    f"({cached_name})"
+                )
+                return is_reg, cached_name
 
         # face_recognition은 RGB 이미지를 사용
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -265,12 +282,14 @@ class FaceRecognizer:
         if best_distance <= self.tolerance:
             name = self.known_names[best_idx]
             logger.debug(f"등록된 사용자: {name} (거리: {best_distance:.3f})")
+            self._cache[cache_key] = (name, now)
             return True, name
 
         logger.debug(
             f"미등록 사용자 (최소 거리: {best_distance:.3f}, "
             f"임계값: {self.tolerance})"
         )
+        self._cache[cache_key] = (None, now)
         return False, None
 
     def register(self, image_path, name):
@@ -384,3 +403,10 @@ class FaceRecognizer:
 
         self._save()
         logger.info(f"얼굴 삭제 완료: {name} ({len(indices)}개 인코딩 제거)")
+
+    def close(self):
+        """리소스 해제"""
+        if self._mp_face_detection:
+            self._mp_face_detection.close()
+            self._mp_face_detection = None
+        self._cache.clear()

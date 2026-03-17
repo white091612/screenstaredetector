@@ -230,6 +230,7 @@ class Monitor:
         self._running = False
         self.camera.stop()
         self.gaze_estimator.close()
+        self.face_recognizer.close()
         if self.show_preview:
             cv2.destroyAllWindows()
         logger.info(
