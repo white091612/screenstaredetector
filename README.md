@@ -47,13 +47,14 @@
 powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
 ```
 
+이 스크립트는 먼저 **공식 CMake가 PATH에 있는지** 확인하고, 없으면 `winget`으로 설치를 시도합니다.
+
 수동 설치:
 
 ```powershell
 py -3.11 -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install cmake
 python -m pip install -r requirements.txt
 ```
 
@@ -61,7 +62,44 @@ python -m pip install -r requirements.txt
 
 - Visual Studio 2022 Build Tools
 - `Desktop development with C++`
-- CMake
+- CMake (반드시 **공식 설치판** + PATH 등록)
+
+### Windows 11에서 `dlib` / `CMake is not installed` 오류가 날 때
+
+이 에러는 대부분 `pip install cmake`로는 해결되지 않고, **Windows PATH에 공식 CMake가 없어서** 발생합니다.
+
+권장 해결 순서:
+
+1. 공식 CMake 설치
+
+```powershell
+winget install --id Kitware.CMake -e
+```
+
+또는 [cmake.org](https://cmake.org/download/)에서 설치하고,
+설치 중 `Add CMake to the system PATH for all users` 옵션을 반드시 체크하세요.
+
+2. PowerShell을 완전히 종료 후 다시 열기
+
+3. 설치 확인
+
+```powershell
+cmake --version
+```
+
+4. 다시 설치 실행
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
+```
+
+5. 여전히 실패하면 Visual Studio Build Tools 설치
+
+필수 구성요소:
+
+- `Desktop development with C++`
+- MSVC v143 이상
+- Windows 10/11 SDK
 
 ### Linux / macOS
 
@@ -241,10 +279,10 @@ sudo apt-get install cmake build-essential libopenblas-dev
 Windows:
 
 ```powershell
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install cmake
+cmake --version
 ```
 
+`cmake --version` 이 실패하면, `pip install cmake`가 아니라 **공식 CMake 설치 + PATH 등록**이 필요합니다.
 그래도 실패하면 `Visual Studio Build Tools`의 C++ 구성요소를 설치한 뒤 다시 시도하세요.
 
 ### 카메라를 찾을 수 없음
