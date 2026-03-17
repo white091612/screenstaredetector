@@ -223,25 +223,25 @@ class GazeEstimator:
     def _describe_target(self, yaw):
         """
         yaw 값으로 사용자가 보고 있을 대상을 추정합니다.
-        (디버그/로그용)
+        (디버그/로그용 — OpenCV 호환을 위해 영문 반환)
         """
         offset = self.camera_offset_angle
         t = self.direction_threshold
 
         if offset == 0:
-            return "정면 모니터" if abs(yaw) <= t else None
+            return "Monitor" if abs(yaw) <= t else None
 
         # 큰 모니터 쪽 (yaw ≈ -offset)
         if abs(yaw - (-offset)) <= t:
-            return "큰 모니터"
+            return "Main Monitor"
         # 노트북 쪽 (yaw ≈ 0)
         if abs(yaw) <= t:
-            return "노트북"
+            return "Laptop"
         # 두 모니터 사이
         if offset > 0 and -offset - t <= yaw <= t:
-            return "모니터 영역"
+            return "Screen Area"
         if offset < 0 and -t <= yaw <= -offset + t:
-            return "모니터 영역"
+            return "Screen Area"
         return None
 
     def close(self):
