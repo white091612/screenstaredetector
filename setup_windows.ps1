@@ -135,6 +135,10 @@ if (-not $SkipInstall) {
         Write-Host "  → 기존 venv 사용"
     }
 
+    # 일부 Windows Python에서는 venv에 setuptools/pip가 포함되지 않음
+    Write-Host "  → pip/setuptools 부트스트랩 (ensurepip)"
+    & ".\venv\Scripts\python.exe" -m ensurepip --upgrade 2>$null
+
     Write-Host ""
     Write-Host "[4/5] Python 패키지 설치..."
     & ".\venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel

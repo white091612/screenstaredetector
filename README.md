@@ -130,11 +130,19 @@ python .\register_face.py joseph --dir joseph\
 
 ### Windows 11에서 `No module named 'pkg_resources'` 가 뜰 때
 
-이 오류는 `face_recognition_models` 문제가 아니라 거의 항상 `setuptools` 누락입니다.
+일부 Windows Python 버전은 venv 생성 시 `setuptools`를 포함하지 않습니다.
+`pip install setuptools`가 실패할 수 있으므로, **`ensurepip`으로 먼저 부트스트랩**해야 합니다.
 
 ```powershell
 .\venv\Scripts\Activate.ps1
+python -m ensurepip --upgrade
 python -m pip install --upgrade pip setuptools wheel
+python -c "import pkg_resources; print('setuptools OK')"
+```
+
+위 명령 이후에도 face_recognition 관련 오류가 나오면:
+
+```powershell
 python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
 python -m pip install --upgrade face_recognition
 python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
