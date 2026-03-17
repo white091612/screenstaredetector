@@ -1,14 +1,14 @@
 """
 메인 모니터링 모듈
 
-카메라, 시선 추정, 얼굴 인식, 캡쳐 모듈을 통합하여
+카메라, 시선 추정, 얼굴 인식, 캡쳐, 화면 잠금 모듈을 통합하여
 실시간 화면 감시를 수행합니다.
 
 동작 흐름:
 1. 카메라에서 프레임 획득
 2. MediaPipe로 얼굴 감지 + 머리 방향 추정
 3. 지정 방향을 보는 얼굴에 대해 등록 사용자 여부 확인
-4. 미등록 사용자가 지정 방향을 보면 → 10초 간격으로 캡쳐
+4. 미등록 사용자가 지정 방향을 보면 → 타임스탬프 포함 캡쳐 + 화면 잠금
 """
 
 import cv2
@@ -19,6 +19,7 @@ from .camera import Camera
 from .gaze_estimator import GazeEstimator
 from .face_recognizer import FaceRecognizer
 from .capturer import Capturer
+from .screen_locker import ScreenLocker
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ class Monitor:
         self.capturer = Capturer(
             capture_dir=config.get("capture_dir", "./captures"),
             also_capture_screen=config.get("also_capture_screen", False),
+        )
+        self.screen_locker = ScreenLocker(
+            enabled=config.get("lock_screen_on_unknown", True),
+            cooldown=config.get("lock_cooldown", 30),
         )
 
         # --- 설정 ---
@@ -89,6 +94,9 @@ class Monitor:
             else:
                 logger.info(f"  🖥 화면 판정  : yaw -{t}° ~ {-offset + t}° (큰모니터+노트북)")
         logger.info(f"  ⏱ 캡쳐 간격  : {self.capture_interval}초")
+        lock_enabled = self.config.get("lock_screen_on_unknown", True)
+        lock_cooldown = self.config.get("lock_cooldown", 30)
+        logger.info(f"  🔒 화면 잠금  : {'활성' if lock_enabled else '비활성'} (쿨다운: {lock_cooldown}초)")
         logger.info(f"  🖥 미리보기   : {'활성' if self.show_preview else '비활성'}")
         logger.info(f"  👤 등록 사용자 : {len(self.face_recognizer.known_encodings)}개 인코딩")
         logger.info("=" * 55)
@@ -200,11 +208,12 @@ class Monitor:
                 self._running = False
 
     def _handle_unknown_face(self, frame):
-        """미등록 사용자 감지를 처리합니다."""
+        """미등록 사용자 감지를 처리합니다: 캡쳐 + 화면 잠금"""
         current_time = time.time()
         elapsed = current_time - self._last_capture_time
 
         if elapsed >= self.capture_interval:
+            # 1) 타임스탬프 포함 스크린샷/카메라 캡쳐
             paths = self.capturer.capture(frame)
             self._last_capture_time = current_time
             self._unknown_count += 1
@@ -212,6 +221,9 @@ class Monitor:
                 f"⚠ 미등록 사용자 감지! "
                 f"(#{self._unknown_count}) 캡쳐 저장: {paths}"
             )
+
+            # 2) 화면 잠금 (Win+L 동작)
+            self.screen_locker.lock()
 
     def stop(self):
         """모니터링을 중지하고 리소스를 해제합니다."""
