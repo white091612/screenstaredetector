@@ -57,7 +57,7 @@ py -3.11 -m venv venv
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
 python -m pip install -r requirements.txt
-python -c "import face_recognition_models, face_recognition; print('face recognition packages ok')"
+python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
 ```
 
 만약 `face_recognition` 또는 `dlib` 설치에서 실패하면 아래를 먼저 설치하세요.
@@ -119,13 +119,25 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
 python -m pip install --upgrade face_recognition
 python -c "import sys; print(sys.executable)"
-python -c "import face_recognition_models, face_recognition; print('face recognition packages ok')"
+python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
 ```
 
 그 다음 다시 실행하세요.
 
 ```powershell
 python .\register_face.py joseph --dir joseph\
+```
+
+### Windows 11에서 `No module named 'pkg_resources'` 가 뜰 때
+
+이 오류는 `face_recognition_models` 문제가 아니라 거의 항상 `setuptools` 누락입니다.
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
+python -m pip install --upgrade face_recognition
+python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
 ```
 
 ### Linux / macOS

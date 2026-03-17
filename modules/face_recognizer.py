@@ -38,7 +38,18 @@ def ensure_face_recognition_ready():
             "중요: 반드시 현재 실행 중인 동일한 venv에서 `python -m pip` 형식으로 설치하세요."
         )
 
+    if importlib.util.find_spec("pkg_resources") is None:
+        raise RuntimeError(
+            "`pkg_resources` 모듈이 없습니다. 이는 보통 `setuptools` 누락 문제입니다.\n\n"
+            "현재 venv에서 아래 명령을 실행하세요:\n"
+            "  python -m pip install --upgrade pip setuptools wheel\n"
+            "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
+            "  python -m pip install --upgrade face_recognition\n"
+            "  python -c \"import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')\"\n"
+        )
+
     try:
+        import pkg_resources
         import face_recognition_models
         import face_recognition
     except SystemExit as e:
@@ -49,13 +60,25 @@ def ensure_face_recognition_ready():
             "  python -m pip install --upgrade pip setuptools wheel\n"
             "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
             "  python -m pip install --upgrade face_recognition\n"
-            "  python -c \"import face_recognition_models, face_recognition; print('face recognition packages ok')\"\n"
+            "  python -c \"import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')\"\n"
         ) from e
+    except ModuleNotFoundError as e:
+        if e.name == "pkg_resources":
+            raise RuntimeError(
+                "`pkg_resources`를 찾을 수 없습니다. `setuptools`가 빠져 있습니다.\n\n"
+                "현재 venv에서 아래 명령을 실행하세요:\n"
+                "  python -m pip install --upgrade pip setuptools wheel\n"
+                "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
+                "  python -m pip install --upgrade face_recognition\n"
+                "  python -c \"import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')\"\n"
+            ) from e
+        raise
     except Exception as e:
         raise RuntimeError(
             "face_recognition 초기화에 실패했습니다.\n"
             f"원인: {e}\n\n"
             "현재 venv에서 아래 명령을 실행하세요:\n"
+            "  python -m pip install --upgrade setuptools wheel\n"
             "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
             "  python -m pip install --upgrade face_recognition\n"
         ) from e

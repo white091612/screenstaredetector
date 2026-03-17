@@ -42,10 +42,10 @@ source venv/bin/activate
 # 패키지 설치
 echo ""
 echo "[3/4] Python 패키지 설치..."
-pip install --upgrade pip
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
-python -c "import face_recognition_models, face_recognition; print('face recognition packages ok')"
+python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
 
 # 디렉토리 생성
 echo ""
