@@ -33,14 +33,46 @@
 
 ## 설치
 
-### 자동 설치
+### Windows 11
+
+권장 환경:
+
+- Python `3.10` 또는 `3.11`
+- PowerShell
+- Visual Studio Build Tools C++ 또는 미리 설치된 `dlib` wheel
+
+자동 설치:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
+```
+
+수동 설치:
+
+```powershell
+py -3.11 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install cmake
+python -m pip install -r requirements.txt
+```
+
+만약 `face_recognition` 또는 `dlib` 설치에서 실패하면 아래를 먼저 설치하세요.
+
+- Visual Studio 2022 Build Tools
+- `Desktop development with C++`
+- CMake
+
+### Linux / macOS
+
+자동 설치:
 
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
 
-### 수동 설치
+수동 설치:
 
 1. **시스템 의존성** (dlib 빌드에 필요):
 
@@ -58,6 +90,15 @@ brew install cmake
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+현재 기본 설정은 아래 책상 배치를 기준으로 맞춰져 있습니다.
+
+```text
+┌─────────────────┐     40cm     ┌──────────┐
+│   큰 모니터      │ <---------> │  노트북   │
+│   (정면)         │             │ (카메라)  │
+└─────────────────┘              └──────────┘
 ```
 
 ## 사용법
@@ -84,6 +125,16 @@ python register_face.py --delete 홍길동
 
 ### 2단계: 모니터링 시작
 
+Windows PowerShell:
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python .\main.py start
+python .\main.py start --debug
+```
+
+Linux / macOS:
+
 ```bash
 # 일반 모드
 python main.py start
@@ -95,7 +146,28 @@ python main.py start --debug
 nohup python main.py start > /dev/null 2>&1 &
 ```
 
-### 3단계: 백그라운드 서비스 등록 (선택)
+### 3단계: 백그라운드 실행 등록 (선택)
+
+#### Windows 11 - 작업 스케줄러
+
+1. `작업 스케줄러` 실행
+2. `작업 만들기` 선택
+3. `로그온할 때` 트리거 추가
+4. 동작은 아래처럼 지정
+
+```text
+프로그램/스크립트: powershell.exe
+인수 추가: -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\path\to\screenstaredetector\setup_windows.ps1" -SkipInstall -StartMonitor
+시작 위치: C:\path\to\screenstaredetector
+```
+
+또는 시작프로그램에 아래 바로가기를 넣어도 됩니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command "cd 'C:\path\to\screenstaredetector'; .\venv\Scripts\Activate.ps1; python .\main.py start"
+```
+
+#### Linux - systemd
 
 ```bash
 # 서비스 파일 복사
@@ -123,6 +195,7 @@ systemctl --user stop screenwatcher
 |------|------|--------|
 | `target_direction` | 감시 방향 (`"screen"`, `"left"`, `"right"`, `"up"`, `"down"`) | `"screen"` |
 | `direction_threshold` | 방향 판단 임계값 (도, 낮을수록 엄격) | `15` |
+| `camera_offset_angle` | 카메라가 사용자 정면에서 벗어난 각도 (오른쪽=양수) | `30` |
 | `face_recognition_tolerance` | 얼굴 비교 허용 오차 (0.0~1.0, 낮을수록 엄격) | `0.6` |
 | `recognition_model` | 인식 모델 (`"small"`=빠름, `"large"`=정확) | `"small"` |
 | `capture_interval` | 캡쳐 간격 (초) | `10` |
@@ -140,6 +213,7 @@ screensaver/
 ├── register_face.py       # 얼굴 등록 유틸리티
 ├── requirements.txt       # Python 패키지 목록
 ├── setup.sh               # 설치 스크립트
+├── setup_windows.ps1      # Windows 11 설치/실행 스크립트
 ├── screenwatcher.service  # systemd 서비스 파일
 ├── modules/
 │   ├── __init__.py
@@ -164,6 +238,15 @@ cmake --version
 sudo apt-get install cmake build-essential libopenblas-dev
 ```
 
+Windows:
+
+```powershell
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install cmake
+```
+
+그래도 실패하면 `Visual Studio Build Tools`의 C++ 구성요소를 설치한 뒤 다시 시도하세요.
+
 ### 카메라를 찾을 수 없음
 
 ```bash
@@ -172,6 +255,11 @@ ls /dev/video*
 
 # config.yaml에서 camera_index 변경
 ```
+
+Windows:
+
+- 카메라가 다른 앱(Zoom, Teams, 카메라 앱)에서 점유 중인지 확인
+- [config.yaml](config.yaml) 의 `camera_index`를 `0`, `1`, `2` 순서로 바꿔 테스트
 
 ### 얼굴 인식 정확도 향상
 

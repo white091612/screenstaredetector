@@ -14,5 +14,6 @@ registered_faces/*
 !registered_faces/.gitkeep
 *.pkl
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
