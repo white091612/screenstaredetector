@@ -13,7 +13,16 @@ import time
 
 import cv2
 import numpy as np
-import mediapipe as mp
+
+try:
+    import mediapipe as mp
+    _FaceDetection = mp.solutions.face_detection.FaceDetection
+except (AttributeError, ImportError):
+    raise ImportError(
+        "mediapipe 버전이 호환되지 않습니다.\n"
+        "mp.solutions API가 필요합니다. 아래 명령으로 재설치하세요:\n"
+        '  pip install "mediapipe>=0.10.9,<0.10.21"'
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +119,7 @@ class FaceRecognizer:
         self._load()
 
         # MediaPipe Face Detection 인스턴스 재사용 (매번 생성하지 않음)
-        self._mp_face_detection = mp.solutions.face_detection.FaceDetection(
+        self._mp_face_detection = _FaceDetection(
             model_selection=1,  # full-range: ~5m, ±60°
             min_detection_confidence=0.5,
         )

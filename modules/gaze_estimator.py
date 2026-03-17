@@ -7,8 +7,17 @@ MediaPipe Face Mesh의 468개 랜드마크와 cv2.solvePnP를 활용하여
 
 import cv2
 import numpy as np
-import mediapipe as mp
 import logging
+
+try:
+    import mediapipe as mp
+    _FaceMesh = mp.solutions.face_mesh.FaceMesh
+except (AttributeError, ImportError):
+    raise ImportError(
+        "mediapipe 버전이 호환되지 않습니다.\n"
+        "mp.solutions API가 필요합니다. 아래 명령으로 재설치하세요:\n"
+        '  pip install "mediapipe>=0.10.9,<0.10.21"'
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +52,7 @@ class GazeEstimator:
         """
         self.direction_threshold = direction_threshold
         self.camera_offset_angle = camera_offset_angle
-        self.face_mesh = mp.solutions.face_mesh.FaceMesh(
+        self.face_mesh = _FaceMesh(
             max_num_faces=max_faces,
             refine_landmarks=True,
             min_detection_confidence=0.5,
