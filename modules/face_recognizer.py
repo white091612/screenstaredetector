@@ -12,6 +12,7 @@ import logging
 
 import cv2
 import numpy as np
+import mediapipe as mp
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,86 @@ class FaceRecognizer:
                 f,
             )
 
+    # ------------------------------------------------------------------
+    # 다단계 얼굴 감지 (옆모습 지원)
+    # ------------------------------------------------------------------
+
+    def _detect_faces_robust(self, rgb_image):
+        """
+        여러 방법으로 얼굴을 감지합니다. (옆모습 포함)
+
+        감지 순서:
+          1) HOG — 빠름, 정면 전용
+          2) CNN — 느리지만 더 넓은 각도 (dlib CNN 모델 필요)
+          3) MediaPipe Face Detection — 넓은 각도(±60°), GPU 불필요
+
+        Returns:
+            list of (top, right, bottom, left) — face_recognition 형식
+        """
+        # 1) HOG (fast, frontal)
+        locations = self.face_recognition.face_locations(rgb_image, model="hog")
+        if locations:
+            return locations
+
+        # 2) CNN (slower, wider angle)
+        try:
+            locations = self.face_recognition.face_locations(
+                rgb_image, model="cnn"
+            )
+            if locations:
+                logger.debug("CNN 모델로 얼굴 감지 성공")
+                return locations
+        except Exception:
+            pass  # CNN model not available
+
+        # 3) MediaPipe Face Detection (widest angle coverage)
+        locations = self._detect_faces_mediapipe(rgb_image)
+        if locations:
+            logger.debug("MediaPipe로 얼굴 감지 성공 (옆모습 포함 가능)")
+            return locations
+
+        return []
+
+    def _detect_faces_mediapipe(self, rgb_image):
+        """
+        MediaPipe Face Detection으로 얼굴 위치를 감지합니다.
+        model_selection=1 (full-range model) 은 최대 ~5m, ±60° 각도를 지원합니다.
+
+        Returns:
+            list of (top, right, bottom, left) — face_recognition 형식
+        """
+        h, w = rgb_image.shape[:2]
+        locations = []
+
+        with mp.solutions.face_detection.FaceDetection(
+            model_selection=1,  # 0=근거리(2m), 1=원거리(5m)+넓은 각도
+            min_detection_confidence=0.5,
+        ) as face_detection:
+            results = face_detection.process(rgb_image)
+            if not results.detections:
+                return locations
+
+            for det in results.detections:
+                bbox = det.location_data.relative_bounding_box
+                x = bbox.xmin * w
+                y = bbox.ymin * h
+                bw = bbox.width * w
+                bh = bbox.height * h
+
+                # 바운딩 박스에 15% 여유분 추가 (인코딩 품질 향상)
+                pad_x = bw * 0.15
+                pad_y = bh * 0.15
+
+                top = max(0, int(y - pad_y))
+                right = min(w, int(x + bw + pad_x))
+                bottom = min(h, int(y + bh + pad_y))
+                left = max(0, int(x - pad_x))
+
+                # face_recognition 형식: (top, right, bottom, left)
+                locations.append((top, right, bottom, left))
+
+        return locations
+
     def is_registered_user(self, frame, face_bbox):
         """
         지정된 위치의 얼굴이 등록된 사용자인지 확인합니다.
@@ -195,6 +276,7 @@ class FaceRecognizer:
     def register(self, image_path, name):
         """
         이미지 파일에서 얼굴을 등록합니다.
+        HOG → CNN → MediaPipe 순서로 다단계 감지하여 옆모습도 지원합니다.
 
         Args:
             image_path: 이미지 파일 경로
@@ -204,10 +286,22 @@ class FaceRecognizer:
             ValueError: 이미지에서 얼굴을 찾을 수 없을 때
         """
         image = self.face_recognition.load_image_file(image_path)
-        encodings = self.face_recognition.face_encodings(image, model="large")
+
+        # 다단계 감지로 옆모습도 찾기
+        locations = self._detect_faces_robust(image)
+
+        if not locations:
+            raise ValueError(f"이미지에서 얼굴을 찾을 수 없습니다: {image_path}")
+
+        # 감지된 위치를 기반으로 인코딩 생성
+        encodings = self.face_recognition.face_encodings(
+            image, known_face_locations=locations, model="large"
+        )
 
         if not encodings:
-            raise ValueError(f"이미지에서 얼굴을 찾을 수 없습니다: {image_path}")
+            raise ValueError(
+                f"얼굴을 감지했지만 인코딩을 생성할 수 없습니다: {image_path}"
+            )
 
         if len(encodings) > 1:
             logger.warning(
@@ -225,6 +319,7 @@ class FaceRecognizer:
     def register_from_frame(self, frame, name):
         """
         카메라 프레임에서 직접 얼굴을 등록합니다.
+        HOG → CNN → MediaPipe 순서로 다단계 감지하여 옆모습도 지원합니다.
 
         Args:
             frame: BGR 이미지 (numpy array)
@@ -234,10 +329,18 @@ class FaceRecognizer:
             ValueError: 프레임에서 얼굴을 찾을 수 없을 때
         """
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        encodings = self.face_recognition.face_encodings(rgb, model="large")
+
+        locations = self._detect_faces_robust(rgb)
+
+        if not locations:
+            raise ValueError("프레임에서 얼굴을 찾을 수 없습니다.")
+
+        encodings = self.face_recognition.face_encodings(
+            rgb, known_face_locations=locations, model="large"
+        )
 
         if not encodings:
-            raise ValueError("프레임에서 얼굴을 찾을 수 없습니다.")
+            raise ValueError("얼굴을 감지했지만 인코딩을 생성할 수 없습니다.")
 
         if len(encodings) > 1:
             logger.warning(

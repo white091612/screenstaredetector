@@ -49,7 +49,7 @@ def register_camera(name, face_data_dir, camera_index=0):
     count = 0
     print(f"📸 '{name}' 얼굴 등록 모드")
     print("   SPACE: 촬영 | ESC: 완료")
-    print("   여러 각도에서 3~5장 촬영하면 정확도가 높아집니다.")
+    print("   정면 + 좌/우 옆모습을 포함하여 5~8장 촬영하면 정확도가 높아집니다.")
     print()
 
     while True:
@@ -78,7 +78,7 @@ def register_camera(name, face_data_dir, camera_index=0):
                 count += 1
                 print(f"  ✅ {count}번째 촬영 완료")
             except ValueError:
-                print("  ❌ 얼굴을 찾을 수 없습니다. 카메라를 정면으로 보세요.")
+                print("  ❌ 얼굴을 찾을 수 없습니다. 다양한 각도를 시도해 보세요.")
 
     cap.release()
     cv2.destroyAllWindows()
