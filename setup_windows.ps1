@@ -103,6 +103,17 @@ CMake를 사용할 수 없습니다.
 "@
 }
 
+function Install-FaceRecognitionDependencies {
+    Write-Host "  → face_recognition_models 설치"
+    & ".\venv\Scripts\python.exe" -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
+
+    Write-Host "  → face_recognition 설치"
+    & ".\venv\Scripts\python.exe" -m pip install --upgrade face_recognition
+
+    Write-Host "  → 설치 검증"
+    & ".\venv\Scripts\python.exe" -c "import face_recognition_models, face_recognition; print('face recognition packages ok')"
+}
+
 if (-not $SkipInstall) {
     Write-Host ""
     Write-Host "[1/5] Python 확인..."
@@ -126,6 +137,7 @@ if (-not $SkipInstall) {
     & ".\venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
     try {
         & ".\venv\Scripts\python.exe" -m pip install -r requirements.txt
+        Install-FaceRecognitionDependencies
     }
     catch {
         Write-Warning "requirements 설치 중 오류가 발생했습니다."

@@ -55,7 +55,9 @@ powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
 py -3.11 -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip setuptools wheel
+python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
 python -m pip install -r requirements.txt
+python -c "import face_recognition_models, face_recognition; print('face recognition packages ok')"
 ```
 
 만약 `face_recognition` 또는 `dlib` 설치에서 실패하면 아래를 먼저 설치하세요.
@@ -100,6 +102,31 @@ powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
 - `Desktop development with C++`
 - MSVC v143 이상
 - Windows 10/11 SDK
+
+### Windows 11에서 `Please install face_recognition_models` 가 반복될 때
+
+이 경우는 대부분 아래 둘 중 하나입니다.
+
+- `pip`가 현재 venv가 아닌 다른 Python에 설치함
+- `face_recognition_models`가 부분 설치되었거나 깨진 캐시를 사용함
+
+반드시 **현재 venv 안에서** 아래 순서로 다시 설치하세요.
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python -m pip uninstall -y face-recognition-models face_recognition_models face_recognition
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
+python -m pip install --upgrade face_recognition
+python -c "import sys; print(sys.executable)"
+python -c "import face_recognition_models, face_recognition; print('face recognition packages ok')"
+```
+
+그 다음 다시 실행하세요.
+
+```powershell
+python .\register_face.py joseph --dir joseph\
+```
 
 ### Linux / macOS
 

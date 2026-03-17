@@ -35,7 +35,11 @@ def register_camera(name, face_data_dir, camera_index=0):
     """카메라로 여러 장의 사진을 찍어 등록 (정확도 향상)"""
     from modules.face_recognizer import FaceRecognizer
 
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    try:
+        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
@@ -89,7 +93,11 @@ def register_image(name, image_path, face_data_dir):
     """이미지 파일에서 등록"""
     from modules.face_recognizer import FaceRecognizer
 
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    try:
+        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     if not os.path.exists(image_path):
         print(f"❌ 파일을 찾을 수 없습니다: {image_path}")
@@ -107,7 +115,11 @@ def register_directory(name, dir_path, face_data_dir):
     """디렉토리의 모든 이미지에서 등록"""
     from modules.face_recognizer import FaceRecognizer
 
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    try:
+        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     if not os.path.isdir(dir_path):
         print(f"❌ 디렉토리를 찾을 수 없습니다: {dir_path}")
@@ -140,7 +152,11 @@ def list_registered(face_data_dir):
     """등록된 사용자 목록"""
     from modules.face_recognizer import FaceRecognizer
 
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    try:
+        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     registered = recognizer.list_registered()
     if not registered:
@@ -155,7 +171,11 @@ def delete_user(name, face_data_dir):
     """사용자 삭제"""
     from modules.face_recognizer import FaceRecognizer
 
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    try:
+        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     try:
         recognizer.delete(name)
