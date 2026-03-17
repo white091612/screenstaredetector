@@ -128,15 +128,23 @@ python -c "import pkg_resources, face_recognition_models, face_recognition; prin
 python .\register_face.py joseph --dir joseph\
 ```
 
-### Windows 11에서 `No module named 'pkg_resources'` 가 뜰 때
+### `No module named 'pkg_resources'` 오류
 
-일부 Windows Python 버전은 venv 생성 시 `setuptools`를 포함하지 않습니다.
-`pip install setuptools`가 실패할 수 있으므로, **`ensurepip`으로 먼저 부트스트랩**해야 합니다.
+**setuptools 72+ 버전에서 `pkg_resources` 모듈이 제거되었습니다.**
+`face_recognition_models`가 내부적으로 `pkg_resources`를 사용하므로,
+`pkg_resources`가 포함된 구버전 setuptools를 설치해야 합니다.
 
 ```powershell
+# Windows
 .\venv\Scripts\Activate.ps1
-python -m ensurepip --upgrade
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install "setuptools>=65.0.0,<72.0.0"
+python -c "import pkg_resources; print('setuptools OK')"
+```
+
+```bash
+# Linux / macOS
+source venv/bin/activate
+pip install "setuptools>=65.0.0,<72.0.0"
 python -c "import pkg_resources; print('setuptools OK')"
 ```
 

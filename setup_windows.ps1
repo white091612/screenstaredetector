@@ -104,8 +104,8 @@ CMake를 사용할 수 없습니다.
 }
 
 function Install-FaceRecognitionDependencies {
-    Write-Host "  → setuptools/wheel 복구"
-    & ".\venv\Scripts\python.exe" -m pip install --upgrade setuptools wheel
+    Write-Host "  → setuptools/wheel 복구 (pkg_resources 포함 버전)"
+    & ".\venv\Scripts\python.exe" -m pip install "setuptools>=65.0.0,<72.0.0" wheel
 
     Write-Host "  → face_recognition_models 설치"
     & ".\venv\Scripts\python.exe" -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
@@ -141,7 +141,9 @@ if (-not $SkipInstall) {
 
     Write-Host ""
     Write-Host "[4/5] Python 패키지 설치..."
-    & ".\venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
+    # setuptools 72+ 에서 pkg_resources가 제거됨 → face_recognition_models 호환을 위해 <72 고정
+    & ".\venv\Scripts\python.exe" -m pip install --upgrade pip wheel
+    & ".\venv\Scripts\python.exe" -m pip install "setuptools>=65.0.0,<72.0.0"
     try {
         & ".\venv\Scripts\python.exe" -m pip install -r requirements.txt
         Install-FaceRecognitionDependencies

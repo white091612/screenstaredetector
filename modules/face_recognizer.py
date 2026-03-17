@@ -32,7 +32,7 @@ def ensure_face_recognition_ready():
             "필수 얼굴 인식 패키지가 누락되었습니다: "
             f"{package_text}\n\n"
             "현재 사용 중인 Python에서 아래 명령을 실행하세요:\n"
-            "  python -m pip install --upgrade pip setuptools wheel\n"
+            '  python -m pip install "setuptools>=65.0.0,<72.0.0" wheel\n'
             "  python -m pip install git+https://github.com/ageitgey/face_recognition_models\n"
             "  python -m pip install face_recognition\n\n"
             "중요: 반드시 현재 실행 중인 동일한 venv에서 `python -m pip` 형식으로 설치하세요."
@@ -40,12 +40,14 @@ def ensure_face_recognition_ready():
 
     if importlib.util.find_spec("pkg_resources") is None:
         raise RuntimeError(
-            "`pkg_resources` 모듈이 없습니다. 이는 보통 `setuptools` 누락 문제입니다.\n\n"
+            "`pkg_resources` 모듈이 없습니다.\n"
+            "setuptools 72+ 버전에서는 pkg_resources가 제거되었습니다.\n"
+            "face_recognition_models가 pkg_resources를 필요로 하므로 구버전을 설치해야 합니다.\n\n"
             "현재 venv에서 아래 명령을 실행하세요:\n"
-            "  python -m pip install --upgrade pip setuptools wheel\n"
+            '  python -m pip install "setuptools>=65.0.0,<72.0.0"\n'
             "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
             "  python -m pip install --upgrade face_recognition\n"
-            "  python -c \"import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')\"\n"
+            '  python -c "import pkg_resources, face_recognition_models, face_recognition; print(\'ok\')"\n'
         )
 
     try:
@@ -57,20 +59,18 @@ def ensure_face_recognition_ready():
             "face_recognition 또는 face_recognition_models 로딩에 실패했습니다.\n\n"
             "현재 venv에서 아래 명령을 순서대로 다시 실행하세요:\n"
             "  python -m pip uninstall -y face-recognition-models face_recognition_models face_recognition\n"
-            "  python -m pip install --upgrade pip setuptools wheel\n"
+            '  python -m pip install "setuptools>=65.0.0,<72.0.0" wheel\n'
             "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
             "  python -m pip install --upgrade face_recognition\n"
-            "  python -c \"import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')\"\n"
         ) from e
     except ModuleNotFoundError as e:
         if e.name == "pkg_resources":
             raise RuntimeError(
-                "`pkg_resources`를 찾을 수 없습니다. `setuptools`가 빠져 있습니다.\n\n"
-                "현재 venv에서 아래 명령을 실행하세요:\n"
-                "  python -m pip install --upgrade pip setuptools wheel\n"
+                "`pkg_resources`를 찾을 수 없습니다.\n"
+                "setuptools 72+ 에서 pkg_resources가 제거되었습니다. 구버전을 설치하세요:\n\n"
+                '  python -m pip install "setuptools>=65.0.0,<72.0.0"\n'
                 "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
                 "  python -m pip install --upgrade face_recognition\n"
-                "  python -c \"import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')\"\n"
             ) from e
         raise
     except Exception as e:
@@ -78,7 +78,7 @@ def ensure_face_recognition_ready():
             "face_recognition 초기화에 실패했습니다.\n"
             f"원인: {e}\n\n"
             "현재 venv에서 아래 명령을 실행하세요:\n"
-            "  python -m pip install --upgrade setuptools wheel\n"
+            '  python -m pip install "setuptools>=65.0.0,<72.0.0" wheel\n'
             "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
             "  python -m pip install --upgrade face_recognition\n"
         ) from e
