@@ -133,6 +133,9 @@ class Monitor:
         # 얼굴 감지 + 방향 추정
         faces = self.gaze_estimator.estimate(frame)
 
+        has_registered = False    # 이 프레임에 등록된 사용자가 있는지
+        has_unknown = False       # 이 프레임에 미등록 사용자가 있는지
+
         for face_info in faces:
             bbox = face_info["bbox"]
             yaw = face_info["yaw"]
@@ -189,9 +192,14 @@ class Monitor:
                     2,
                 )
 
-            # 미등록 사용자 처리
-            if not is_registered:
-                self._handle_unknown_face(frame)
+            if is_registered:
+                has_registered = True
+            else:
+                has_unknown = True
+
+        # 미등록 사용자 처리: 등록된 사용자가 함께 있으면 잠금하지 않음
+        if has_unknown and not has_registered:
+            self._handle_unknown_face(frame)
 
         # --- 디버그 미리보기 표시 ---
         if self.show_preview and display_frame is not None:
