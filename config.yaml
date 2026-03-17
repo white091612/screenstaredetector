@@ -25,9 +25,11 @@ camera_height: 480       # 카메라 해상도 (높이)
 camera_offset_angle: 30
 
 # --- 감시 방향 ---
-# "screen": 모니터(들)을 보는 경우 감시
-#   → 큰 모니터 + 노트북 모두 "screen"으로 판정
-# "left", "right", "up", "down": 해당 방향을 보는 경우 감시
+# "screen": 큰 모니터 방향 (+ laptop도 자동 포함)
+# "laptop": 노트북(카메라 정면) 방향만
+# "screen,laptop": 둘 다 (screen 설정 시 laptop은 자동 포함됨)
+# "left", "right", "up", "down": 해당 방향
+# 쉼표로 여러 방향 지정 가능: "screen,left"
 target_direction: "screen"
 
 # 방향 판단 임계값 (도, degrees)

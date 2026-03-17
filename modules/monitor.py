@@ -60,7 +60,16 @@ class Monitor:
         )
 
         # --- 설정 ---
-        self.target_direction = config.get("target_direction", "screen")
+        td = config.get("target_direction", "screen")
+        if isinstance(td, str):
+            self.target_directions = {d.strip() for d in td.split(",")}
+        elif isinstance(td, list):
+            self.target_directions = set(td)
+        else:
+            self.target_directions = {"screen"}
+        # "screen" 은 항상 "laptop" 도 포함 (듀얼 모니터 지원)
+        if "screen" in self.target_directions:
+            self.target_directions.add("laptop")
         self.capture_interval = config.get("capture_interval", 10)
         self.process_interval = config.get("process_interval", 0.5)
         self.show_preview = config.get("show_preview", False)
@@ -85,7 +94,7 @@ class Monitor:
         offset = self.config.get("camera_offset_angle", 0)
         logger.info("=" * 55)
         logger.info("  🔒 Screen Watcher 모니터링 시작")
-        logger.info(f"  📡 감시 방향  : {self.target_direction}")
+        logger.info(f"  📡 감시 방향  : {', '.join(sorted(self.target_directions))}")
         if offset != 0:
             logger.info(f"  📐 카메라 위치 : 정면에서 {'오른쪽' if offset > 0 else '왼쪽'} {abs(offset)}°")
             t = self.config.get("direction_threshold", 15)
@@ -151,7 +160,7 @@ class Monitor:
                 )
 
             # 지정 방향을 보고있는지 확인
-            if direction != self.target_direction:
+            if direction not in self.target_directions:
                 continue
 
             # 등록된 사용자인지 확인
@@ -188,7 +197,7 @@ class Monitor:
         if self.show_preview and display_frame is not None:
             # 상태 표시줄
             status_items = [
-                f"Direction: {self.target_direction}",
+                f"Watch: {','.join(sorted(self.target_directions))}",
                 f"Faces: {len(faces)}",
                 f"Captures: {self._unknown_count}",
             ]

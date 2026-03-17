@@ -209,6 +209,12 @@ class GazeEstimator:
             yaw_max = t
 
         if yaw_min <= yaw <= yaw_max and abs(pitch) <= t:
+            # 듀얼 모니터: 큰 모니터 vs 노트북 구분
+            if offset != 0:
+                if abs(yaw) <= t:
+                    return "laptop"   # 카메라 정면 ≈ 노트북
+                else:
+                    return "screen"   # 오프셋 방향 ≈ 큰 모니터
             return "screen"
 
         # screen이 아닌 경우 좌/우 판정
