@@ -55,7 +55,9 @@ max_faces: 4
 capture_interval: 10
 
 # 스크린 캡쳐도 같이 저장할지 여부
-also_capture_screen: true
+# true = mss로 화면 캡쳐 (카메라 앱이 뜨지 않음)
+# false = 카메라 프레임만 저장 (silent, 기본값)
+also_capture_screen: false
 
 # --- 화면 잠금 ---
 # 미등록 사용자 감지 시 화면 잠금 (Win+L 동작)
