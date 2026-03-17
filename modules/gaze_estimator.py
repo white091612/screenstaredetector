@@ -193,8 +193,13 @@ class GazeEstimator:
         t = self.direction_threshold
         offset = self.camera_offset_angle
 
-        # pitch가 큰 경우 먼저 상/하 판정
-        if abs(pitch) > t and abs(pitch) >= abs(yaw):
+        # 노트북 카메라는 눈높이보다 아래에 있으므로
+        # 모니터를 볼 때 자연스럽게 pitch가 +10~25° 발생
+        # pitch 허용 범위는 yaw보다 넓게 설정 (2배)
+        pitch_t = t * 2
+
+        # pitch가 매우 큰 경우 먼저 상/하 판정
+        if abs(pitch) > pitch_t and abs(pitch) >= abs(yaw):
             return "up" if pitch < 0 else "down"
 
         # === "screen" 판정 (듀얼 모니터 대응) ===
@@ -215,7 +220,7 @@ class GazeEstimator:
             yaw_min = -t
             yaw_max = t
 
-        if yaw_min <= yaw <= yaw_max and abs(pitch) <= t:
+        if yaw_min <= yaw <= yaw_max and abs(pitch) <= pitch_t:
             # 듀얼 모니터: 큰 모니터 vs 노트북 구분
             if offset != 0:
                 if abs(yaw) <= t:
