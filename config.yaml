@@ -1,0 +1,68 @@
+# =========================================
+# Screen Watcher 설정 파일
+# =========================================
+
+# --- 카메라 설정 ---
+camera_index: 0          # 카메라 장치 번호 (기본: 0)
+camera_width: 640        # 카메라 해상도 (너비)
+camera_height: 480       # 카메라 해상도 (높이)
+
+# --- 책상 배치 (듀얼 모니터) ---
+# 카메라(노트북)가 사용자 정면이 아닌 비스듬한 위치에 있는 경우 보정합니다.
+#
+# [사용자 시점 위에서 본 배치도]
+#
+#     ┌─────────────────┐        ┌──────────┐
+#     │   큰 모니터      │        │  노트북   │
+#     │   (정면)         │← 40cm →│  (카메라) │
+#     └─────────────────┘        └──────────┘
+#                    \ ˜30°  /
+#                     사용자
+#
+# camera_offset_angle: 카메라가 사용자 정면(큰 모니터)으로부터
+#   오른쪽으로 몇 도 떨어져 있는지 (오른쪽=양수, 왼쪽=음수)
+#   예: 40cm/60cm ≈ 약 30°
+camera_offset_angle: 30
+
+# --- 감시 방향 ---
+# "screen": 모니터(들)을 보는 경우 감시
+#   → 큰 모니터 + 노트북 모두 "screen"으로 판정
+# "left", "right", "up", "down": 해당 방향을 보는 경우 감시
+target_direction: "screen"
+
+# 방향 판단 임계값 (도, degrees)
+# 이 범위 이내면 해당 방향으로 인정. 값이 작을수록 엄격
+# 듀얼 모니터 시 "screen" 판정 범위:
+#   큰 모니터 방향 = yaw_offset ± threshold
+#   노트북 방향   = 0° ± threshold
+#   실질적으로 두 모니터를 잇는 전체 범위를 커버
+direction_threshold: 15
+
+# --- 얼굴 인식 ---
+# 얼굴 비교 허용 오차 (0.0~1.0, 낮을수록 엄격)
+face_recognition_tolerance: 0.6
+
+# 인식 모델: "small" (빠름) 또는 "large" (정확)
+recognition_model: "small"
+
+# 최대 동시 감지 얼굴 수
+max_faces: 4
+
+# --- 캡쳐 설정 ---
+# 캡쳐 간격 (초)
+capture_interval: 10
+
+# 스크린 캡쳐도 같이 저장할지 여부
+also_capture_screen: false
+
+# --- 경로 설정 ---
+face_data_dir: "./registered_faces"
+capture_dir: "./captures"
+log_file: "screenwatcher.log"
+
+# --- 처리 설정 ---
+# 프레임 처리 간격 (초, 낮을수록 자주 확인하지만 CPU 사용량 증가)
+process_interval: 0.5
+
+# 미리보기 창 표시 (디버그용)
+show_preview: false

@@ -1,0 +1,16 @@
+[Unit]
+Description=Screen Watcher - Privacy Protection Monitor
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/work/screensaver
+ExecStart=%h/work/screensaver/venv/bin/python %h/work/screensaver/main.py start
+Restart=on-failure
+RestartSec=30
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target
