@@ -21,8 +21,9 @@ camera_height: 480       # 카메라 해상도 (높이)
 #
 # camera_offset_angle: 카메라가 사용자 정면(큰 모니터)으로부터
 #   오른쪽으로 몇 도 떨어져 있는지 (오른쪽=양수, 왼쪽=음수)
-#   예: 40cm/60cm ≈ 약 30°
-camera_offset_angle: 30
+#   디버그 화면에서 큰 모니터를 볼 때 Y값 ≈ 이 값의 음수
+#   예: Y:-51이면 offset을 50으로 설정
+camera_offset_angle: 50
 
 # --- 감시 방향 ---
 # "screen": 큰 모니터 방향 (+ laptop도 자동 포함)
