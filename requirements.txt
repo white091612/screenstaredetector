@@ -1,4 +1,3 @@
-opencv-python>=4.8.0,<4.11.0
 mediapipe>=0.10.9,<0.10.21
 insightface>=0.7.0
 onnxruntime>=1.16.0
@@ -6,3 +5,8 @@ PyYAML>=6.0
 numpy>=1.24.0,<2.0.0
 mss>=9.0.0
 Pillow>=10.0.0
+# opencv-python은 반드시 마지막에 설치해야 합니다.
+# insightface/mediapipe가 opencv-python-headless를 설치할 수 있는데,
+# headless 버전에는 imshow 등 GUI 함수가 없어 --debug 모드에서 에러 발생.
+# 마지막에 설치하면 headless를 full 버전으로 덮어씁니다.
+opencv-python>=4.8.0

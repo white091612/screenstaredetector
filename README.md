@@ -1,45 +1,45 @@
 # 🔒 Screen Watcher - 화면 감시 프로그램
 
 노트북 카메라를 통해 화면을 보는 사람을 실시간으로 감시하고,
-등록되지 않은 사람이 지정한 방향을 보고 있을 경우 **무소음으로 자동 캡쳐**합니다.
+등록되지 않은 사람이 지정한 방향을 보고 있을 경우 **무소음으로 자동 캡쳐 + 화면 잠금**합니다.
 
 ## 주요 기능
 
 | 기능 | 설명 |
 |------|------|
 | 📷 **얼굴 감지** | MediaPipe Face Mesh로 실시간 얼굴 감지 |
-| 🧠 **사용자 식별** | face_recognition으로 등록된 사용자 비교 |
+| 🧠 **사용자 식별** | InsightFace (ArcFace 512d) + cosine similarity + 다수결 판정 |
 | 👁 **시선 추정** | solvePnP 기반 머리 방향(Yaw/Pitch) 추정 |
+| 👥 **다중 인물** | 전체 프레임 분석 + IoU bbox 매칭으로 안정적인 다중 인물 처리 |
 | 📸 **무소음 캡쳐** | 미등록 사용자 감지 시 10초 간격 자동 캡쳐 |
-| 🔧 **백그라운드** | systemd 서비스로 부팅 시 자동 실행 |
+| 🔒 **화면 잠금** | 미등록 사용자 감지 시 Win+L 자동 잠금 |
 
 ## 동작 흐름
 
 ```
 카메라 프레임 캡쳐
-       ↓
-얼굴 감지 (MediaPipe Face Mesh)
-       ↓
-머리 방향 추정 (solvePnP → Yaw/Pitch)
-       ↓
-지정 방향을 보고 있는가? ──(아니오)──→ 무시
-       ↓ (예)
-등록된 사용자인가? ──(예)──→ 무시
-       ↓ (아니오)
-10초 경과? ──(아니오)──→ 대기
-       ↓ (예)
-📸 카메라 프레임 캡쳐 저장 (무소음)
+       ├─→ MediaPipe Face Mesh ──→ 머리 방향 추정 (Yaw/Pitch) ──→ 방향 판정
+       │                                ↓ bbox list
+       └─→ InsightFace app.get(frame) ──→ 전체 얼굴 Detection + ArcFace (512d)
+                                         ↓ identity list
+                                    IoU bbox 매칭 (방향 + 신원 결합)
+                                         ↓
+                       미등록자가 화면 봄 AND 등록자가 화면 안 봄
+                                         ↓
+                              📸 캡쳐 + 🔒 화면 잠금
 ```
 
 ## 설치
 
+### 필수 요구사항
+
+- Python **3.10** 또는 **3.11**
+- pip
+
+> ⚠️ CMake, Visual Studio Build Tools, dlib 등은 **더 이상 필요하지 않습니다.**
+> InsightFace는 사전 빌드된 ONNX 모델을 사용하므로 C++ 컴파일러가 불필요합니다.
+
 ### Windows 11
-
-권장 환경:
-
-- Python `3.10` 또는 `3.11`
-- PowerShell
-- Visual Studio Build Tools C++ 또는 미리 설치된 `dlib` wheel
 
 자동 설치:
 
@@ -47,114 +47,21 @@
 powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
 ```
 
-이 스크립트는 먼저 **공식 CMake가 PATH에 있는지** 확인하고, 없으면 `winget`으로 설치를 시도합니다.
-
 수동 설치:
 
 ```powershell
 py -3.11 -m venv venv
 .\venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
+python -m pip install --upgrade pip wheel
 python -m pip install -r requirements.txt
-python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
+# insightface가 opencv-python-headless를 설치할 수 있으므로 GUI 버전으로 덮어쓰기
+python -m pip install --force-reinstall opencv-python
+# 설치 확인
+python -c "from insightface.app import FaceAnalysis; import cv2; print('OK')"
 ```
 
-만약 `face_recognition` 또는 `dlib` 설치에서 실패하면 아래를 먼저 설치하세요.
-
-- Visual Studio 2022 Build Tools
-- `Desktop development with C++`
-- CMake (반드시 **공식 설치판** + PATH 등록)
-
-### Windows 11에서 `dlib` / `CMake is not installed` 오류가 날 때
-
-이 에러는 대부분 `pip install cmake`로는 해결되지 않고, **Windows PATH에 공식 CMake가 없어서** 발생합니다.
-
-권장 해결 순서:
-
-1. 공식 CMake 설치
-
-```powershell
-winget install --id Kitware.CMake -e
-```
-
-또는 [cmake.org](https://cmake.org/download/)에서 설치하고,
-설치 중 `Add CMake to the system PATH for all users` 옵션을 반드시 체크하세요.
-
-2. PowerShell을 완전히 종료 후 다시 열기
-
-3. 설치 확인
-
-```powershell
-cmake --version
-```
-
-4. 다시 설치 실행
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
-```
-
-5. 여전히 실패하면 Visual Studio Build Tools 설치
-
-필수 구성요소:
-
-- `Desktop development with C++`
-- MSVC v143 이상
-- Windows 10/11 SDK
-
-### Windows 11에서 `Please install face_recognition_models` 가 반복될 때
-
-이 경우는 대부분 아래 둘 중 하나입니다.
-
-- `pip`가 현재 venv가 아닌 다른 Python에 설치함
-- `face_recognition_models`가 부분 설치되었거나 깨진 캐시를 사용함
-
-반드시 **현재 venv 안에서** 아래 순서로 다시 설치하세요.
-
-```powershell
-.\venv\Scripts\Activate.ps1
-python -m pip uninstall -y face-recognition-models face_recognition_models face_recognition
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
-python -m pip install --upgrade face_recognition
-python -c "import sys; print(sys.executable)"
-python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
-```
-
-그 다음 다시 실행하세요.
-
-```powershell
-python .\register_face.py joseph --dir joseph\
-```
-
-### `No module named 'pkg_resources'` 오류
-
-**setuptools 72+ 버전에서 `pkg_resources` 모듈이 제거되었습니다.**
-`face_recognition_models`가 내부적으로 `pkg_resources`를 사용하므로,
-`pkg_resources`가 포함된 구버전 setuptools를 설치해야 합니다.
-
-```powershell
-# Windows
-.\venv\Scripts\Activate.ps1
-python -m pip install "setuptools>=65.0.0,<72.0.0"
-python -c "import pkg_resources; print('setuptools OK')"
-```
-
-```bash
-# Linux / macOS
-source venv/bin/activate
-pip install "setuptools>=65.0.0,<72.0.0"
-python -c "import pkg_resources; print('setuptools OK')"
-```
-
-위 명령 이후에도 face_recognition 관련 오류가 나오면:
-
-```powershell
-python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
-python -m pip install --upgrade face_recognition
-python -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
-```
+> **중요:** `pip install -r requirements.txt` 후 반드시 `pip install --force-reinstall opencv-python`을
+> 실행하세요. 이 단계를 빠뜨리면 `--debug` 모드에서 `cv2.imshow` 관련 에러가 발생합니다.
 
 ### Linux / macOS
 
@@ -167,23 +74,23 @@ chmod +x setup.sh
 
 수동 설치:
 
-1. **시스템 의존성** (dlib 빌드에 필요):
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install cmake build-essential libopenblas-dev liblapack-dev
-
-# macOS
-brew install cmake
-```
-
-2. **Python 가상환경 및 패키지**:
-
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+pip install --force-reinstall opencv-python
+python -c "from insightface.app import FaceAnalysis; import cv2; print('OK')"
 ```
+
+### 첫 실행 시 모델 다운로드
+
+InsightFace `buffalo_l` 모델(~326MB)이 첫 실행 시 자동 다운로드됩니다.
+
+```
+다운로드 위치: ~/.insightface/models/buffalo_l/
+```
+
+네트워크 환경에 따라 1~5분 소요될 수 있습니다.
 
 현재 기본 설정은 아래 책상 배치를 기준으로 맞춰져 있습니다.
 
@@ -199,15 +106,15 @@ pip install -r requirements.txt
 ### 1단계: 얼굴 등록 (필수)
 
 ```bash
+# 폴더의 모든 이미지로 한번에 등록 (권장)
+# 정면 + 좌/우 30° + 다른 조명 포함 5~10장
+python register_face.py 홍길동 --dir my_photos/
+
 # 카메라로 등록 (SPACE로 촬영, ESC로 완료)
-# 여러 각도에서 3~5장 촬영 권장
 python register_face.py 홍길동
 
 # 이미지 파일로 등록
 python register_face.py 홍길동 --image my_photo.jpg
-
-# 폴더의 모든 이미지로 한번에 등록
-python register_face.py 홍길동 --dir my_photos/
 
 # 등록된 사용자 목록
 python register_face.py --list
@@ -215,6 +122,9 @@ python register_face.py --list
 # 사용자 삭제
 python register_face.py --delete 홍길동
 ```
+
+> **등록 팁:** 같은 이름으로 다양한 각도(정면, 좌측 30°, 우측 30°)의 사진을 등록하면
+> 인식 정확도가 크게 향상됩니다. ArcFace가 pose-invariant이므로 좌/우를 별도 분류할 필요 없습니다.
 
 ### 2단계: 모니터링 시작
 
@@ -254,12 +164,6 @@ nohup python main.py start > /dev/null 2>&1 &
 시작 위치: C:\path\to\screenstaredetector
 ```
 
-또는 시작프로그램에 아래 바로가기를 넣어도 됩니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command "cd 'C:\path\to\screenstaredetector'; .\venv\Scripts\Activate.ps1; python .\main.py start"
-```
-
 #### Linux - systemd
 
 ```bash
@@ -277,9 +181,6 @@ systemctl --user status screenwatcher
 
 # 로그 확인
 journalctl --user -u screenwatcher -f
-
-# 서비스 중지
-systemctl --user stop screenwatcher
 ```
 
 ## 설정 (config.yaml)
@@ -288,10 +189,14 @@ systemctl --user stop screenwatcher
 |------|------|--------|
 | `target_direction` | 감시 방향 (`"screen"`, `"left"`, `"right"`, `"up"`, `"down"`) | `"screen"` |
 | `direction_threshold` | 방향 판단 임계값 (도, 낮을수록 엄격) | `15` |
-| `camera_offset_angle` | 카메라가 사용자 정면에서 벗어난 각도 (오른쪽=양수) | `30` |
-| `face_recognition_tolerance` | 얼굴 비교 허용 오차 (0.0~1.0, 낮을수록 엄격) | `0.6` |
-| `recognition_model` | 인식 모델 (`"small"`=빠름, `"large"`=정확) | `"small"` |
+| `camera_offset_angle` | 카메라가 사용자 정면에서 벗어난 각도 (오른쪽=양수) | `50` |
+| `face_recognition_threshold` | Cosine Similarity 임계값 (0.0\~1.0, 높을수록 엄격) | `0.4` |
+| `insightface_model` | InsightFace 모델 (`"buffalo_l"`=정확, `"buffalo_sc"`=빠름) | `"buffalo_l"` |
+| `insightface_det_size` | Detection 입력 크기 (높을수록 정확, 느림) | `640` |
+| `max_faces` | 최대 동시 감지 얼굴 수 | `4` |
 | `capture_interval` | 캡쳐 간격 (초) | `10` |
+| `lock_screen_on_unknown` | 미등록 사용자 감지 시 화면 잠금 | `true` |
+| `lock_cooldown` | 잠금 후 재잠금 대기 시간 (초) | `30` |
 | `camera_index` | 카메라 장치 번호 | `0` |
 | `also_capture_screen` | 스크린 캡쳐도 함께 저장 | `false` |
 | `show_preview` | 미리보기 창 표시 (디버그용) | `false` |
@@ -305,60 +210,66 @@ screensaver/
 ├── main.py                # 메인 진입점
 ├── register_face.py       # 얼굴 등록 유틸리티
 ├── requirements.txt       # Python 패키지 목록
-├── setup.sh               # 설치 스크립트
+├── setup.sh               # Linux/macOS 설치 스크립트
 ├── setup_windows.ps1      # Windows 11 설치/실행 스크립트
 ├── screenwatcher.service  # systemd 서비스 파일
 ├── modules/
 │   ├── __init__.py
 │   ├── camera.py          # 스레드 기반 카메라 모듈
 │   ├── gaze_estimator.py  # 시선/머리 방향 추정 모듈
-│   ├── face_recognizer.py # 얼굴 인식/비교 모듈
+│   ├── face_recognizer.py # InsightFace 얼굴 인식 모듈
 │   ├── capturer.py        # 무소음 캡쳐 모듈
+│   ├── screen_locker.py   # 화면 잠금 모듈
 │   └── monitor.py         # 모니터링 통합 모듈
-├── registered_faces/      # 등록된 얼굴 인코딩 데이터
+├── registered_faces/      # 등록된 얼굴 임베딩 데이터
 └── captures/              # 캡쳐된 이미지 저장소
 ```
 
 ## 트러블슈팅
 
-### dlib 설치 오류
+### `cv2.imshow` / `The function is not implemented` 에러
+
+`insightface` 또는 `mediapipe`가 `opencv-python-headless`를 설치하면서 GUI 함수가 제거됩니다.
 
 ```bash
-# cmake 설치 확인
-cmake --version
-
-# Ubuntu
-sudo apt-get install cmake build-essential libopenblas-dev
+pip install --force-reinstall opencv-python
 ```
 
-Windows:
-
-```powershell
-cmake --version
-```
-
-`cmake --version` 이 실패하면, `pip install cmake`가 아니라 **공식 CMake 설치 + PATH 등록**이 필요합니다.
-그래도 실패하면 `Visual Studio Build Tools`의 C++ 구성요소를 설치한 뒤 다시 시도하세요.
+이 명령으로 GUI 지원이 포함된 full 버전으로 교체하세요.
 
 ### 카메라를 찾을 수 없음
 
 ```bash
-# 사용 가능한 카메라 확인
+# Linux: 사용 가능한 카메라 확인
 ls /dev/video*
-
-# config.yaml에서 camera_index 변경
 ```
 
-Windows:
-
-- 카메라가 다른 앱(Zoom, Teams, 카메라 앱)에서 점유 중인지 확인
-- [config.yaml](config.yaml) 의 `camera_index`를 `0`, `1`, `2` 순서로 바꿔 테스트
+- Windows: 카메라가 다른 앱(Zoom, Teams)에서 점유 중인지 확인
+- `config.yaml`의 `camera_index`를 `0`, `1`, `2` 순서로 바꿔 테스트
 
 ### 얼굴 인식 정확도 향상
 
-- 다양한 각도/조명에서 **여러 장** 등록
-- `face_recognition_tolerance` 값 조절 (낮을수록 엄격)
-- `recognition_model`을 `"large"`로 변경 (느리지만 정확)
+- 다양한 각도/조명에서 **5~10장** 등록 (정면 + 좌/우 30°)
+- `face_recognition_threshold` 값 올리기 (0.5 = 엄격)
+- `insightface_det_size`를 `640`으로 유지 (기본값)
+
+### InsightFace 모델 다운로드 실패
+
+```bash
+# 모델 수동 다운로드
+# https://github.com/deepinsight/insightface/releases/tag/v0.7
+# buffalo_l.zip 다운로드 후 ~/.insightface/models/buffalo_l/ 에 압축 해제
+```
+
+### 기존 dlib 인코딩 호환 불가
+
+InsightFace 전환 후 기존 `encodings.pkl`은 호환되지 않습니다.
+자동으로 감지되어 무시되며, 재등록 안내가 표시됩니다.
+
+```bash
+rm registered_faces/encodings.pkl
+python register_face.py 홍길동 --dir photos/
+```
 
 ### 디버그 모드로 동작 확인
 
@@ -373,8 +284,9 @@ python main.py start --debug
 
 ## 기술 스택
 
+- **InsightFace (ArcFace)** — 512차원 얼굴 임베딩 + SCRFD 얼굴 감지
+- **ONNX Runtime** — CPU 기반 모델 추론
+- **MediaPipe Face Mesh** — 468개 랜드마크 기반 머리 방향 추정
 - **OpenCV** — 카메라 제어 및 이미지 처리
-- **MediaPipe Face Mesh** — 468개 랜드마크 기반 얼굴 감지 + 시선 추정
-- **face_recognition (dlib)** — 얼굴 인코딩 및 비교
 - **mss** — 무소음 스크린 캡쳐 (선택)
 - **PyYAML** — 설정 파일 관리

@@ -48,85 +48,14 @@ function Invoke-Python {
     }
 }
 
-function Test-CMakeAvailable {
-    if (Get-Command cmake -ErrorAction SilentlyContinue) {
-        $null = & cmake --version 2>$null
-        return ($LASTEXITCODE -eq 0)
-    }
-
-    return $false
-}
-
-function Add-CMakeToCurrentPath {
-    $candidatePaths = @(
-        "$Env:ProgramFiles\CMake\bin",
-        "$Env:ProgramFiles(x86)\CMake\bin"
-    )
-
-    foreach ($candidate in $candidatePaths) {
-        if (Test-Path $candidate) {
-            if (-not ($Env:Path -split ';' | Where-Object { $_ -eq $candidate })) {
-                $Env:Path = "$candidate;$Env:Path"
-            }
-        }
-    }
-}
-
-function Ensure-CMake {
-    Write-Host ""
-    Write-Host "[2/5] CMake 확인..."
-
-    Add-CMakeToCurrentPath
-    if (Test-CMakeAvailable) {
-        Write-Host "  → CMake 확인 완료"
-        return
-    }
-
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "  → winget으로 공식 CMake 설치 시도"
-        & winget install --id Kitware.CMake -e --accept-source-agreements --accept-package-agreements
-        Add-CMakeToCurrentPath
-        if (Test-CMakeAvailable) {
-            Write-Host "  → CMake 설치 완료"
-            return
-        }
-    }
-
-    throw @"
-CMake를 사용할 수 없습니다.
-
-다음 순서로 해결하세요:
-1. https://cmake.org/download/ 에서 Windows x64 Installer 설치
-2. 설치 중 'Add CMake to the system PATH for all users' 옵션 체크
-3. PowerShell을 완전히 닫았다가 다시 열기
-4. 다시 실행: powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
-"@
-}
-
-function Install-FaceRecognitionDependencies {
-    Write-Host "  → setuptools/wheel 복구 (pkg_resources 포함 버전)"
-    & ".\venv\Scripts\python.exe" -m pip install "setuptools>=65.0.0,<72.0.0" wheel
-
-    Write-Host "  → face_recognition_models 설치"
-    & ".\venv\Scripts\python.exe" -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models
-
-    Write-Host "  → face_recognition 설치"
-    & ".\venv\Scripts\python.exe" -m pip install --upgrade face_recognition
-
-    Write-Host "  → 설치 검증"
-    & ".\venv\Scripts\python.exe" -c "import pkg_resources, face_recognition_models, face_recognition; print('face recognition packages ok')"
-}
-
 if (-not $SkipInstall) {
     Write-Host ""
-    Write-Host "[1/5] Python 확인..."
+    Write-Host "[1/4] Python 확인..."
     $pythonCmd = Get-PythonCommand
     Write-Host ("  → 사용 명령: " + ($pythonCmd -join " "))
 
-    Ensure-CMake
-
     Write-Host ""
-    Write-Host "[3/5] 가상환경 생성..."
+    Write-Host "[2/4] 가상환경 생성..."
     if (-not (Test-Path ".\venv")) {
         Invoke-Python -Arguments @("-m", "venv", "venv")
         Write-Host "  → venv 생성 완료"
@@ -136,27 +65,31 @@ if (-not $SkipInstall) {
     }
 
     # 일부 Windows Python에서는 venv에 setuptools/pip가 포함되지 않음
-    Write-Host "  → pip/setuptools 부트스트랩 (ensurepip)"
+    Write-Host "  → pip 부트스트랩 (ensurepip)"
     & ".\venv\Scripts\python.exe" -m ensurepip --upgrade 2>$null
 
     Write-Host ""
-    Write-Host "[4/5] Python 패키지 설치..."
-    # setuptools 72+ 에서 pkg_resources가 제거됨 → face_recognition_models 호환을 위해 <72 고정
+    Write-Host "[3/4] Python 패키지 설치..."
     & ".\venv\Scripts\python.exe" -m pip install --upgrade pip wheel
-    & ".\venv\Scripts\python.exe" -m pip install "setuptools>=65.0.0,<72.0.0"
+
     try {
         & ".\venv\Scripts\python.exe" -m pip install -r requirements.txt
-        Install-FaceRecognitionDependencies
+
+        # insightface/mediapipe가 opencv-python-headless를 설치할 수 있으므로
+        # GUI 지원이 있는 opencv-python으로 강제 재설치
+        & ".\venv\Scripts\python.exe" -m pip install --force-reinstall opencv-python
+
+        Write-Host "  → 설치 검증"
+        & ".\venv\Scripts\python.exe" -c "from insightface.app import FaceAnalysis; import cv2; print('InsightFace + OpenCV OK')"
     }
     catch {
-        Write-Warning "requirements 설치 중 오류가 발생했습니다."
-        Write-Warning "Windows에서는 face_recognition/dlib 설치에 공식 CMake와 Visual Studio Build Tools(C++)가 필요할 수 있습니다."
-        Write-Warning "README의 Windows 문제 해결 섹션을 확인하세요."
+        Write-Warning "패키지 설치 중 오류가 발생했습니다."
+        Write-Warning "README의 트러블슈팅 섹션을 확인하세요."
         throw
     }
 
     Write-Host ""
-    Write-Host "[5/5] 디렉토리 생성..."
+    Write-Host "[4/4] 디렉토리 생성..."
     New-Item -ItemType Directory -Force -Path ".\registered_faces" | Out-Null
     New-Item -ItemType Directory -Force -Path ".\captures" | Out-Null
 }
@@ -168,7 +101,7 @@ Write-Host "========================================="
 Write-Host ""
 Write-Host "사용법:"
 Write-Host "  .\venv\Scripts\Activate.ps1"
-Write-Host "  python .\register_face.py <이름>"
+Write-Host "  python .\register_face.py <이름> --dir <사진폴더>"
 Write-Host "  python .\main.py start"
 Write-Host "  python .\main.py start --debug"
 
