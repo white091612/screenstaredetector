@@ -42,11 +42,19 @@ target_direction: "screen"
 direction_threshold: 15
 
 # --- 얼굴 인식 ---
-# 얼굴 비교 허용 오차 (0.0~1.0, 낮을수록 엄격)
-face_recognition_tolerance: 0.6
+# 인식 엔진: "insightface" (권장) 또는 "dlib" (레거시)
+recognition_engine: "insightface"
 
-# 인식 모델: "small" (빠름) 또는 "large" (정확)
-recognition_model: "small"
+# InsightFace 모델: "buffalo_l" (정확) 또는 "buffalo_sc" (빠름)
+insightface_model: "buffalo_l"
+
+# InsightFace detection input 크기 (높을수록 정확, 느림)
+# (640, 640) 권장. 속도 우선이면 (320, 320)으로 낮출 수 있음
+insightface_det_size: 640
+
+# Cosine Similarity 임계값 (0.0~1.0, 높을수록 엄격)
+# InsightFace 권장: 0.4 (일반) ~ 0.5 (엄격)
+face_recognition_threshold: 0.4
 
 # 최대 동시 감지 얼굴 수
 max_faces: 4

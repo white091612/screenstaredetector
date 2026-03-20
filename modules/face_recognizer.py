@@ -1,11 +1,10 @@
 """
 얼굴 인식/비교 모듈
 
-face_recognition 라이브러리를 이용하여 얼굴 인코딩을 생성하고
-등록된 사용자와 비교합니다.
+InsightFace (ArcFace) 기반 얼굴 인코딩 및 등록된 사용자 비교.
+512차원 normalized embedding + cosine similarity + 다수결 판정.
 """
 
-import importlib.util
 import os
 import pickle
 import logging
@@ -13,235 +12,243 @@ import time
 
 import cv2
 import numpy as np
-
-try:
-    import mediapipe as mp
-    _FaceDetection = mp.solutions.face_detection.FaceDetection
-except (AttributeError, ImportError):
-    raise ImportError(
-        "mediapipe 버전이 호환되지 않습니다.\n"
-        "mp.solutions API가 필요합니다. 아래 명령으로 재설치하세요:\n"
-        '  pip install "mediapipe>=0.10.9,<0.10.21"'
-    )
+from insightface.app import FaceAnalysis
 
 logger = logging.getLogger(__name__)
 
 
-def ensure_face_recognition_ready():
-    """face_recognition 및 모델 패키지 설치 상태를 확인합니다."""
-    missing_packages = []
-
-    if importlib.util.find_spec("face_recognition_models") is None:
-        missing_packages.append("face_recognition_models")
-
-    if importlib.util.find_spec("face_recognition") is None:
-        missing_packages.append("face_recognition")
-
-    if missing_packages:
-        package_text = ", ".join(missing_packages)
-        raise RuntimeError(
-            "필수 얼굴 인식 패키지가 누락되었습니다: "
-            f"{package_text}\n\n"
-            "현재 사용 중인 Python에서 아래 명령을 실행하세요:\n"
-            '  python -m pip install "setuptools>=65.0.0,<72.0.0" wheel\n'
-            "  python -m pip install git+https://github.com/ageitgey/face_recognition_models\n"
-            "  python -m pip install face_recognition\n\n"
-            "중요: 반드시 현재 실행 중인 동일한 venv에서 `python -m pip` 형식으로 설치하세요."
-        )
-
-    if importlib.util.find_spec("pkg_resources") is None:
-        raise RuntimeError(
-            "`pkg_resources` 모듈이 없습니다.\n"
-            "setuptools 72+ 버전에서는 pkg_resources가 제거되었습니다.\n"
-            "face_recognition_models가 pkg_resources를 필요로 하므로 구버전을 설치해야 합니다.\n\n"
-            "현재 venv에서 아래 명령을 실행하세요:\n"
-            '  python -m pip install "setuptools>=65.0.0,<72.0.0"\n'
-            "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
-            "  python -m pip install --upgrade face_recognition\n"
-            '  python -c "import pkg_resources, face_recognition_models, face_recognition; print(\'ok\')"\n'
-        )
-
-    try:
-        import pkg_resources
-        import face_recognition_models
-        import face_recognition
-    except SystemExit as e:
-        raise RuntimeError(
-            "face_recognition 또는 face_recognition_models 로딩에 실패했습니다.\n\n"
-            "현재 venv에서 아래 명령을 순서대로 다시 실행하세요:\n"
-            "  python -m pip uninstall -y face-recognition-models face_recognition_models face_recognition\n"
-            '  python -m pip install "setuptools>=65.0.0,<72.0.0" wheel\n'
-            "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
-            "  python -m pip install --upgrade face_recognition\n"
-        ) from e
-    except ModuleNotFoundError as e:
-        if e.name == "pkg_resources":
-            raise RuntimeError(
-                "`pkg_resources`를 찾을 수 없습니다.\n"
-                "setuptools 72+ 에서 pkg_resources가 제거되었습니다. 구버전을 설치하세요:\n\n"
-                '  python -m pip install "setuptools>=65.0.0,<72.0.0"\n'
-                "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
-                "  python -m pip install --upgrade face_recognition\n"
-            ) from e
-        raise
-    except Exception as e:
-        raise RuntimeError(
-            "face_recognition 초기화에 실패했습니다.\n"
-            f"원인: {e}\n\n"
-            "현재 venv에서 아래 명령을 실행하세요:\n"
-            '  python -m pip install "setuptools>=65.0.0,<72.0.0" wheel\n'
-            "  python -m pip install --no-cache-dir --force-reinstall git+https://github.com/ageitgey/face_recognition_models\n"
-            "  python -m pip install --upgrade face_recognition\n"
-        ) from e
-
-    return face_recognition
-
-
 class FaceRecognizer:
-    """얼굴 인코딩 기반 사용자 인식"""
+    """InsightFace 기반 얼굴 인코딩 사용자 인식"""
 
-    def __init__(
-        self, face_data_dir="./registered_faces", tolerance=0.6, model="small"
-    ):
+    def __init__(self, config):
         """
         Args:
-            face_data_dir: 등록된 얼굴 데이터 저장 디렉토리
-            tolerance: 얼굴 비교 허용 오차 (0.0~1.0, 낮을수록 엄격)
-            model: 인코딩 모델 ("small"=빠름, "large"=정확)
+            config: dict — config.yaml 설정 딕셔너리
         """
-        self.face_data_dir = face_data_dir
-        self.tolerance = tolerance
-        self.model = model
-        self.face_recognition = ensure_face_recognition_ready()
-        self.known_encodings = []
-        self.known_names = []
-        os.makedirs(face_data_dir, exist_ok=True)
+        self.face_data_dir = config.get("face_data_dir", "./registered_faces")
+        self._threshold = config.get("face_recognition_threshold", 0.4)
+        os.makedirs(self.face_data_dir, exist_ok=True)
+
+        # InsightFace 초기화
+        model_name = config.get("insightface_model", "buffalo_l")
+        det_size = config.get("insightface_det_size", 640)
+
+        self._app = FaceAnalysis(
+            name=model_name,
+            allowed_modules=["detection", "recognition"],
+            providers=["CPUExecutionProvider"],
+        )
+        self._app.prepare(
+            ctx_id=-1,
+            det_size=(det_size, det_size),
+            det_thresh=0.5,
+        )
+        logger.info(f"InsightFace 초기화 완료: {model_name}, det_size={det_size}")
+
+        # 등록 데이터
+        self.known_embeddings = []          # list of np.ndarray (512,)
+        self.known_names = []               # list of str
+        self._known_matrix = np.empty((0, 512))  # (N, 512) 행렬
         self._load()
 
-        # MediaPipe Face Detection 인스턴스 재사용 (매번 생성하지 않음)
-        self._mp_face_detection = _FaceDetection(
-            model_selection=1,  # full-range: ~5m, ±60°
-            min_detection_confidence=0.5,
-        )
-
-        # 인식 결과 캐시 (bbox 위치 기반)
+        # bbox 레벨 캐시 (is_registered_user 용)
         self._cache = {}          # {bbox_key: (name_or_None, timestamp)}
         self._cache_ttl = 2.0     # 캐시 유효 시간 (초)
+
+        # 프레임 레벨 캐시 (identify_all_faces 용)
+        self._frame_cache = None       # list of identity dicts
+        self._frame_cache_time = 0
 
     @property
     def _encoding_file(self):
         return os.path.join(self.face_data_dir, "encodings.pkl")
 
+    # ------------------------------------------------------------------
+    # 데이터 관리
+    # ------------------------------------------------------------------
+
+    def _rebuild_matrix(self):
+        """등록 임베딩을 (N, 512) numpy 행렬로 재구축. cosine similarity 일괄 계산에 사용."""
+        if self.known_embeddings:
+            self._known_matrix = np.array(self.known_embeddings)  # (N, 512)
+        else:
+            self._known_matrix = np.empty((0, 512))
+
     def _load(self):
-        """저장된 인코딩 데이터를 로드합니다."""
+        """저장된 임베딩 데이터를 로드합니다."""
         if os.path.exists(self._encoding_file):
             try:
                 with open(self._encoding_file, "rb") as f:
                     data = pickle.load(f)
-                self.known_encodings = data.get("encodings", [])
-                self.known_names = data.get("names", [])
-                unique_names = set(self.known_names)
-                logger.info(
-                    f"등록된 얼굴 {len(self.known_encodings)}개 로드 "
-                    f"({len(unique_names)}명: {', '.join(unique_names)})"
-                )
+
+                saved_engine = data.get("engine", "dlib")
+                embeddings = data.get("embeddings", data.get("encodings", []))
+
+                # 엔진 불일치 감지 (dlib 128d ≠ insightface 512d)
+                if saved_engine != "insightface" and embeddings:
+                    logger.warning(
+                        f"⚠ 저장된 인코딩({saved_engine})이 현재 엔진(insightface)과 "
+                        f"호환되지 않습니다. 기존 인코딩을 무시합니다. "
+                        f"'python register_face.py <이름> --dir <폴더>'로 재등록하세요."
+                    )
+                    self.known_embeddings = []
+                    self.known_names = []
+                else:
+                    self.known_embeddings = embeddings
+                    self.known_names = data.get("names", [])
+                    unique_names = set(self.known_names)
+                    logger.info(
+                        f"등록된 얼굴 {len(self.known_embeddings)}개 로드 "
+                        f"({len(unique_names)}명: {', '.join(unique_names)})"
+                    )
             except Exception as e:
                 logger.error(f"인코딩 파일 로드 실패: {e}")
-                self.known_encodings = []
+                self.known_embeddings = []
                 self.known_names = []
         else:
             logger.warning(
                 "등록된 얼굴이 없습니다. "
                 "'python register_face.py <이름>' 으로 얼굴을 등록하세요."
             )
+        self._rebuild_matrix()
 
     def _save(self):
-        """인코딩 데이터를 파일에 저장합니다."""
+        """임베딩 데이터를 파일에 저장합니다."""
         with open(self._encoding_file, "wb") as f:
             pickle.dump(
                 {
-                    "encodings": self.known_encodings,
+                    "embeddings": self.known_embeddings,
                     "names": self.known_names,
+                    "engine": "insightface",
+                    "dimensions": 512,
                 },
                 f,
             )
 
     # ------------------------------------------------------------------
-    # 다단계 얼굴 감지 (옆모습 지원)
+    # 임베딩 추출
     # ------------------------------------------------------------------
 
-    def _detect_faces_robust(self, rgb_image):
+    def _get_face_embedding(self, frame, face_bbox):
         """
-        여러 방법으로 얼굴을 감지합니다. (옆모습 포함)
+        주어진 bbox 영역의 얼굴에 대해 InsightFace 임베딩을 추출합니다.
 
-        감지 순서 (성능 최적화):
-          1) MediaPipe Face Detection — 가장 빠르고 넓은 각도(±60°)
-          2) HOG — 정면 보완
-        CNN은 CPU에서 ~3초로 너무 느려 제외함.
+        Args:
+            frame: BGR 이미지 (numpy array)
+            face_bbox: (top, right, bottom, left) — gaze_estimator가 준 bbox
 
         Returns:
-            list of (top, right, bottom, left) — face_recognition 형식
+            np.ndarray (512,) — normalized embedding, or None
         """
-        # 1) MediaPipe (fastest, widest angle)
-        locations = self._detect_faces_mediapipe(rgb_image)
-        if locations:
-            return locations
+        top, right, bottom, left = face_bbox
+        h, w = frame.shape[:2]
 
-        # 2) HOG (frontal backup)
-        locations = self.face_recognition.face_locations(rgb_image, model="hog")
-        if locations:
-            logger.debug("HOG로 얼굴 감지 성공")
-            return locations
+        # bbox에 30% 여유분 추가 (InsightFace alignment에 충분한 컨텍스트 제공)
+        pad_x = int((right - left) * 0.3)
+        pad_y = int((bottom - top) * 0.3)
+        crop_top = max(0, top - pad_y)
+        crop_bottom = min(h, bottom + pad_y)
+        crop_left = max(0, left - pad_x)
+        crop_right = min(w, right + pad_x)
 
-        return []
+        crop = frame[crop_top:crop_bottom, crop_left:crop_right]
 
-    def _detect_faces_mediapipe(self, rgb_image):
+        if crop.size == 0:
+            return None
+
+        # InsightFace로 크롭 영역에서 얼굴 분석
+        faces = self._app.get(crop)
+
+        if not faces:
+            # 크롭 실패 시 전체 프레임으로 재시도
+            faces = self._app.get(frame)
+            if not faces:
+                return None
+            # 전체 프레임에서 원본 bbox 중심에 가장 가까운 얼굴 선택
+            bbox_center = np.array([(left + right) / 2, (top + bottom) / 2])
+            best_face = min(
+                faces,
+                key=lambda f: np.linalg.norm(
+                    np.array([(f.bbox[0] + f.bbox[2]) / 2, (f.bbox[1] + f.bbox[3]) / 2])
+                    - bbox_center
+                ),
+            )
+            return best_face.normed_embedding
+
+        if len(faces) == 1:
+            return faces[0].normed_embedding
+
+        # 크롭 내 여러 얼굴 감지 시 → 원본 bbox 중심에 가장 가까운 얼굴 선택
+        bbox_center = np.array(
+            [(left + right) / 2 - crop_left, (top + bottom) / 2 - crop_top]
+        )
+        best_face = min(
+            faces,
+            key=lambda f: np.linalg.norm(
+                np.array([(f.bbox[0] + f.bbox[2]) / 2, (f.bbox[1] + f.bbox[3]) / 2])
+                - bbox_center
+            ),
+        )
+
+        return best_face.normed_embedding  # (512,) normalized
+
+    # ------------------------------------------------------------------
+    # 다수결 판정 (내부 공통 로직)
+    # ------------------------------------------------------------------
+
+    def _majority_vote(self, embedding):
         """
-        MediaPipe Face Detection으로 얼굴 위치를 감지합니다.
-        클래스 레벨에서 인스턴스를 재사용하여 초기화 오버헤드를 제거합니다.
+        등록된 모든 임베딩과 cosine similarity 비교 후 다수결 판정.
+
+        Args:
+            embedding: np.ndarray (512,) — normalized embedding
 
         Returns:
-            list of (top, right, bottom, left) — face_recognition 형식
+            tuple: (name or None, similarity or 0.0)
         """
-        h, w = rgb_image.shape[:2]
-        locations = []
+        if len(self.known_embeddings) == 0:
+            return None, 0.0
 
-        results = self._mp_face_detection.process(rgb_image)
-        if not results.detections:
-            return locations
+        # normed_embedding이므로 내적 = cosine similarity
+        similarities = self._known_matrix @ embedding  # (N,)
 
-        for det in results.detections:
-            bbox = det.location_data.relative_bounding_box
-            x = bbox.xmin * w
-            y = bbox.ymin * h
-            bw = bbox.width * w
-            bh = bbox.height * h
+        # 사용자별 다수결 판정
+        user_scores = {}  # {name: [sim1, sim2, ...]}
+        for i, sim in enumerate(similarities):
+            name = self.known_names[i]
+            if name not in user_scores:
+                user_scores[name] = []
+            user_scores[name].append(float(sim))
 
-            # 바운딩 박스에 15% 여유분 추가 (인코딩 품질 향상)
-            pad_x = bw * 0.15
-            pad_y = bh * 0.15
+        best_name = None
+        best_avg_sim = -1.0
 
-            top = max(0, int(y - pad_y))
-            right = min(w, int(x + bw + pad_x))
-            bottom = min(h, int(y + bh + pad_y))
-            left = max(0, int(x - pad_x))
+        for name, sims in user_scores.items():
+            matched = [s for s in sims if s >= self._threshold]
+            total = len(sims)
+            # 다수결: 등록 인코딩의 50% 이상이 threshold를 넘어야 함
+            if len(matched) >= max(1, total * 0.5):
+                avg_sim = sum(matched) / len(matched)
+                if avg_sim > best_avg_sim:
+                    best_avg_sim = avg_sim
+                    best_name = name
 
-            locations.append((top, right, bottom, left))
+        max_sim = float(np.max(similarities)) if len(similarities) > 0 else 0.0
+        return best_name, best_avg_sim if best_name else max_sim
 
-        return locations
+    # ------------------------------------------------------------------
+    # 인식: 개별 얼굴
+    # ------------------------------------------------------------------
 
     def _bbox_cache_key(self, bbox, grid=50):
-        """
-        bbox를 그리드로 양자화하여 캐시 키를 생성합니다.
-        비슷한 위치의 얼굴을 같은 사람으로 간주하여 재인코딩을 방지합니다.
-        """
+        """bbox를 그리드로 양자화하여 캐시 키를 생성합니다."""
         t, r, b, l = bbox
         return (t // grid, r // grid, b // grid, l // grid)
 
     def is_registered_user(self, frame, face_bbox):
         """
         지정된 위치의 얼굴이 등록된 사용자인지 확인합니다.
-        위치 기반 캐시로 동일 얼굴의 반복 인코딩을 방지합니다.
+        인터페이스 동일: (bool, str|None) 반환
 
         Args:
             frame: BGR 이미지 (numpy array)
@@ -250,10 +257,10 @@ class FaceRecognizer:
         Returns:
             tuple[bool, str | None]: (등록 여부, 사용자 이름)
         """
-        if not self.known_encodings:
+        if len(self.known_embeddings) == 0:
             return False, None
 
-        # 캐시 확인: 비슷한 위치의 얼굴이 최근에 인식됐다면 재사용
+        # 1. 캐시 확인
         now = time.time()
         cache_key = self._bbox_cache_key(face_bbox)
         if cache_key in self._cache:
@@ -266,45 +273,73 @@ class FaceRecognizer:
                 )
                 return is_reg, cached_name
 
-        # face_recognition은 RGB 이미지를 사용
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-        try:
-            encodings = self.face_recognition.face_encodings(
-                rgb_frame,
-                known_face_locations=[face_bbox],
-                model=self.model,
-            )
-        except Exception as e:
-            logger.debug(f"얼굴 인코딩 실패: {e}")
+        # 2. InsightFace로 임베딩 추출
+        embedding = self._get_face_embedding(frame, face_bbox)
+        if embedding is None:
+            logger.debug("얼굴 임베딩을 추출할 수 없습니다.")
             return False, None
 
-        if not encodings:
-            logger.debug("얼굴 인코딩을 생성할 수 없습니다.")
-            return False, None
+        # 3. 다수결 판정
+        best_name, similarity = self._majority_vote(embedding)
 
-        encoding = encodings[0]
-        distances = self.face_recognition.face_distance(self.known_encodings, encoding)
-        best_idx = int(np.argmin(distances))
-        best_distance = distances[best_idx]
+        # 4. 결과 캐싱 및 반환
+        self._cache[cache_key] = (best_name, now)
 
-        if best_distance <= self.tolerance:
-            name = self.known_names[best_idx]
-            logger.debug(f"등록된 사용자: {name} (거리: {best_distance:.3f})")
-            self._cache[cache_key] = (name, now)
-            return True, name
+        if best_name is not None:
+            logger.debug(f"등록된 사용자: {best_name} (유사도: {similarity:.3f})")
+            return True, best_name
 
         logger.debug(
-            f"미등록 사용자 (최소 거리: {best_distance:.3f}, "
-            f"임계값: {self.tolerance})"
+            f"미등록 사용자 (최대 유사도: {similarity:.3f}, "
+            f"임계값: {self._threshold})"
         )
-        self._cache[cache_key] = (None, now)
         return False, None
+
+    # ------------------------------------------------------------------
+    # 인식: 전체 프레임 (다중 인물)
+    # ------------------------------------------------------------------
+
+    def identify_all_faces(self, frame):
+        """
+        전체 프레임에서 모든 얼굴을 한번에 감지하고 신원을 확인합니다.
+        개별 crop 대신 전체 프레임을 InsightFace에 전달하여
+        작은 얼굴도 안정적으로 감지·인식합니다.
+
+        프레임 레벨 캐시: cache_ttl 이내면 이전 결과 반환.
+
+        Returns:
+            list of dict: [{"bbox": (x1,y1,x2,y2), "name": str|None, "similarity": float}, ...]
+        """
+        now = time.time()
+        if self._frame_cache is not None and (now - self._frame_cache_time) < self._cache_ttl:
+            return self._frame_cache
+
+        faces = self._app.get(frame)
+        results = []
+
+        for face in faces:
+            x1, y1, x2, y2 = face.bbox.astype(int)
+            embedding = face.normed_embedding
+
+            name, similarity = self._majority_vote(embedding)
+
+            results.append({
+                "bbox": (int(x1), int(y1), int(x2), int(y2)),
+                "name": name,
+                "similarity": similarity,
+            })
+
+        self._frame_cache = results
+        self._frame_cache_time = now
+        return results
+
+    # ------------------------------------------------------------------
+    # 등록
+    # ------------------------------------------------------------------
 
     def register(self, image_path, name):
         """
         이미지 파일에서 얼굴을 등록합니다.
-        HOG → CNN → MediaPipe 순서로 다단계 감지하여 옆모습도 지원합니다.
 
         Args:
             image_path: 이미지 파일 경로
@@ -313,41 +348,38 @@ class FaceRecognizer:
         Raises:
             ValueError: 이미지에서 얼굴을 찾을 수 없을 때
         """
-        image = self.face_recognition.load_image_file(image_path)
+        image = cv2.imread(image_path)
+        if image is None:
+            raise ValueError(f"이미지를 읽을 수 없습니다: {image_path}")
 
-        # 다단계 감지로 옆모습도 찾기
-        locations = self._detect_faces_robust(image)
+        faces = self._app.get(image)
 
-        if not locations:
+        if not faces:
             raise ValueError(f"이미지에서 얼굴을 찾을 수 없습니다: {image_path}")
 
-        # 감지된 위치를 기반으로 인코딩 생성
-        encodings = self.face_recognition.face_encodings(
-            image, known_face_locations=locations, model="large"
-        )
-
-        if not encodings:
-            raise ValueError(
-                f"얼굴을 감지했지만 인코딩을 생성할 수 없습니다: {image_path}"
-            )
-
-        if len(encodings) > 1:
+        if len(faces) > 1:
             logger.warning(
-                f"이미지에 {len(encodings)}개의 얼굴 감지됨. "
-                f"첫 번째 얼굴만 등록합니다."
+                f"이미지에 {len(faces)}개의 얼굴 감지됨. "
+                f"가장 큰 얼굴만 등록합니다."
+            )
+            faces.sort(
+                key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+                reverse=True,
             )
 
-        self.known_encodings.append(encodings[0])
+        embedding = faces[0].normed_embedding  # (512,) normalized
+
+        self.known_embeddings.append(embedding)
         self.known_names.append(name)
+        self._rebuild_matrix()
         self._save()
         logger.info(
-            f"얼굴 등록 완료: {name} (총 {len(self.known_encodings)}개 인코딩)"
+            f"얼굴 등록 완료: {name} (총 {len(self.known_embeddings)}개 임베딩)"
         )
 
     def register_from_frame(self, frame, name):
         """
         카메라 프레임에서 직접 얼굴을 등록합니다.
-        HOG → CNN → MediaPipe 순서로 다단계 감지하여 옆모습도 지원합니다.
 
         Args:
             frame: BGR 이미지 (numpy array)
@@ -356,37 +388,39 @@ class FaceRecognizer:
         Raises:
             ValueError: 프레임에서 얼굴을 찾을 수 없을 때
         """
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        faces = self._app.get(frame)
 
-        locations = self._detect_faces_robust(rgb)
-
-        if not locations:
+        if not faces:
             raise ValueError("프레임에서 얼굴을 찾을 수 없습니다.")
 
-        encodings = self.face_recognition.face_encodings(
-            rgb, known_face_locations=locations, model="large"
-        )
-
-        if not encodings:
-            raise ValueError("얼굴을 감지했지만 인코딩을 생성할 수 없습니다.")
-
-        if len(encodings) > 1:
+        if len(faces) > 1:
             logger.warning(
-                f"프레임에 {len(encodings)}개의 얼굴 감지됨. "
-                f"첫 번째 얼굴만 등록합니다."
+                f"프레임에 {len(faces)}개의 얼굴 감지됨. "
+                f"가장 큰 얼굴만 등록합니다."
+            )
+            faces.sort(
+                key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]),
+                reverse=True,
             )
 
-        self.known_encodings.append(encodings[0])
+        embedding = faces[0].normed_embedding
+
+        self.known_embeddings.append(embedding)
         self.known_names.append(name)
+        self._rebuild_matrix()
         self._save()
         logger.info(f"얼굴 등록 완료: {name}")
+
+    # ------------------------------------------------------------------
+    # 관리
+    # ------------------------------------------------------------------
 
     def list_registered(self):
         """
         등록된 사용자 목록을 반환합니다.
 
         Returns:
-            dict[str, int]: {사용자 이름: 인코딩 수}
+            dict[str, int]: {사용자 이름: 임베딩 수}
         """
         from collections import Counter
 
@@ -407,15 +441,15 @@ class FaceRecognizer:
             raise ValueError(f"등록되지 않은 사용자: {name}")
 
         for idx in sorted(indices, reverse=True):
-            del self.known_encodings[idx]
+            del self.known_embeddings[idx]
             del self.known_names[idx]
 
+        self._rebuild_matrix()
         self._save()
-        logger.info(f"얼굴 삭제 완료: {name} ({len(indices)}개 인코딩 제거)")
+        logger.info(f"얼굴 삭제 완료: {name} ({len(indices)}개 임베딩 제거)")
 
     def close(self):
         """리소스 해제"""
-        if self._mp_face_detection:
-            self._mp_face_detection.close()
-            self._mp_face_detection = None
         self._cache.clear()
+        self._frame_cache = None
+        self._app = None

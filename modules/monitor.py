@@ -45,11 +45,7 @@ class Monitor:
             max_faces=config.get("max_faces", 4),
             camera_offset_angle=config.get("camera_offset_angle", 0),
         )
-        self.face_recognizer = FaceRecognizer(
-            face_data_dir=config.get("face_data_dir", "./registered_faces"),
-            tolerance=config.get("face_recognition_tolerance", 0.6),
-            model=config.get("recognition_model", "small"),
-        )
+        self.face_recognizer = FaceRecognizer(config)
         self.capturer = Capturer(
             capture_dir=config.get("capture_dir", "./captures"),
             also_capture_screen=config.get("also_capture_screen", False),
@@ -80,7 +76,7 @@ class Monitor:
         self._unknown_count = 0  # 미등록 사용자 감지 누적 횟수
 
         # 등록된 얼굴이 없으면 경고
-        if not self.face_recognizer.known_encodings:
+        if not self.face_recognizer.known_embeddings:
             logger.warning(
                 "⚠ 등록된 얼굴이 없습니다! "
                 "모든 감지된 얼굴이 미등록으로 처리됩니다."
@@ -107,7 +103,7 @@ class Monitor:
         lock_cooldown = self.config.get("lock_cooldown", 30)
         logger.info(f"  🔒 화면 잠금  : {'활성' if lock_enabled else '비활성'} (쿨다운: {lock_cooldown}초)")
         logger.info(f"  🖥 미리보기   : {'활성' if self.show_preview else '비활성'}")
-        logger.info(f"  👤 등록 사용자 : {len(self.face_recognizer.known_encodings)}개 인코딩")
+        logger.info(f"  👤 등록 사용자 : {len(self.face_recognizer.known_embeddings)}개 임베딩")
         logger.info("=" * 55)
 
         self._running = True
@@ -122,6 +118,45 @@ class Monitor:
         finally:
             self.stop()
 
+    def _match_identity(self, gaze_bbox, all_face_identities):
+        """
+        gaze_estimator의 bbox (top,right,bottom,left)와
+        InsightFace의 bbox (x1,y1,x2,y2)를 IoU로 매칭합니다.
+
+        Returns:
+            dict or None: {"bbox": ..., "name": ..., "similarity": ...}
+        """
+        if not all_face_identities:
+            return None
+
+        top, right, bottom, left = gaze_bbox
+        best_match = None
+        best_iou = 0.3  # 최소 IoU 임계값
+
+        for identity in all_face_identities:
+            x1, y1, x2, y2 = identity["bbox"]
+
+            # IoU 계산
+            inter_left = max(left, x1)
+            inter_top = max(top, y1)
+            inter_right = min(right, x2)
+            inter_bottom = min(bottom, y2)
+
+            if inter_right <= inter_left or inter_bottom <= inter_top:
+                continue
+
+            inter_area = (inter_right - inter_left) * (inter_bottom - inter_top)
+            area1 = (right - left) * (bottom - top)
+            area2 = (x2 - x1) * (y2 - y1)
+            union_area = area1 + area2 - inter_area
+
+            iou = inter_area / union_area if union_area > 0 else 0
+            if iou > best_iou:
+                best_iou = iou
+                best_match = identity
+
+        return best_match
+
     def _process_frame(self):
         """한 프레임을 처리합니다."""
         frame = self.camera.get_frame()
@@ -130,11 +165,16 @@ class Monitor:
 
         display_frame = frame.copy() if self.show_preview else None
 
-        # 얼굴 감지 + 방향 추정
+        # 1단계: 시선 추정 (모든 얼굴의 방향 파악)
         faces = self.gaze_estimator.estimate(frame)
 
-        has_registered = False    # 이 프레임에 등록된 사용자가 있는지
-        has_unknown = False       # 이 프레임에 미등록 사용자가 있는지
+        # 2단계: InsightFace로 전체 프레임 한번에 분석 (모든 얼굴 임베딩 추출)
+        all_face_identities = self.face_recognizer.identify_all_faces(frame)
+
+        # 3단계: gaze_estimator bbox와 InsightFace bbox 매칭
+        has_registered_looking = False   # 화면 보는 등록자 있는지
+        has_unknown_looking = False      # 화면 보는 미등록자 있는지
+        has_registered_present = False   # 프레임에 등록자 존재하는지 (방향 무관)
 
         for face_info in faces:
             bbox = face_info["bbox"]
@@ -144,6 +184,14 @@ class Monitor:
             top, right, bottom, left = bbox
 
             looking_at = face_info.get("looking_at", "")
+
+            # InsightFace 결과에서 가장 가까운 bbox 매칭
+            identity = self._match_identity(bbox, all_face_identities)
+            is_registered = identity is not None and identity["name"] is not None
+            name = identity["name"] if identity else None
+
+            if is_registered:
+                has_registered_present = True  # 등록자가 프레임에 존재
 
             # --- 디버그 미리보기: 기본 정보 ---
             if self.show_preview:
@@ -165,11 +213,6 @@ class Monitor:
             # 지정 방향을 보고있는지 확인
             if direction not in self.target_directions:
                 continue
-
-            # 등록된 사용자인지 확인
-            is_registered, name = self.face_recognizer.is_registered_user(
-                frame, bbox
-            )
 
             # --- 디버그 미리보기: 인식 결과 ---
             if self.show_preview:
@@ -193,12 +236,13 @@ class Monitor:
                 )
 
             if is_registered:
-                has_registered = True
+                has_registered_looking = True
             else:
-                has_unknown = True
+                has_unknown_looking = True
 
-        # 미등록 사용자 처리: 등록된 사용자가 함께 있으면 잠금하지 않음
-        if has_unknown and not has_registered:
+        # 4단계: 캡쳐/잠금 판정
+        # 미등록자가 화면을 보고 있고, 등록자가 화면을 보고 있지 않을 때만 캡쳐
+        if has_unknown_looking and not has_registered_looking:
             self._handle_unknown_face(frame)
 
         # --- 디버그 미리보기 표시 ---

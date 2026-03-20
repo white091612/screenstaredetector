@@ -31,15 +31,21 @@ def load_config(config_path="config.yaml"):
     return {}
 
 
-def register_camera(name, face_data_dir, camera_index=0):
+def register_camera(name, config, camera_index=0):
     """카메라로 여러 장의 사진을 찍어 등록 (정확도 향상)"""
     from modules.face_recognizer import FaceRecognizer
 
     try:
-        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+        recognizer = FaceRecognizer(config)
     except RuntimeError as e:
         print(f"❌ {e}")
         sys.exit(1)
+
+    # 마이그레이션 안내
+    if not recognizer.known_embeddings and os.path.exists(recognizer._encoding_file):
+        print("⚠ 기존 인코딩이 새 엔진(InsightFace)과 호환되지 않습니다.")
+        print("  기존 등록 사진으로 다시 등록해주세요.")
+        print()
 
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
@@ -89,12 +95,12 @@ def register_camera(name, face_data_dir, camera_index=0):
         print("\n등록된 얼굴이 없습니다.")
 
 
-def register_image(name, image_path, face_data_dir):
+def register_image(name, image_path, config):
     """이미지 파일에서 등록"""
     from modules.face_recognizer import FaceRecognizer
 
     try:
-        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+        recognizer = FaceRecognizer(config)
     except RuntimeError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -102,6 +108,12 @@ def register_image(name, image_path, face_data_dir):
     if not os.path.exists(image_path):
         print(f"❌ 파일을 찾을 수 없습니다: {image_path}")
         sys.exit(1)
+
+    # 마이그레이션 안내
+    if not recognizer.known_embeddings and os.path.exists(recognizer._encoding_file):
+        print("⚠ 기존 인코딩이 새 엔진(InsightFace)과 호환되지 않습니다.")
+        print("  기존 등록 사진으로 다시 등록해주세요.")
+        print()
 
     try:
         recognizer.register(image_path, name)
@@ -111,12 +123,12 @@ def register_image(name, image_path, face_data_dir):
         sys.exit(1)
 
 
-def register_directory(name, dir_path, face_data_dir):
+def register_directory(name, dir_path, config):
     """디렉토리의 모든 이미지에서 등록"""
     from modules.face_recognizer import FaceRecognizer
 
     try:
-        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+        recognizer = FaceRecognizer(config)
     except RuntimeError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -124,6 +136,12 @@ def register_directory(name, dir_path, face_data_dir):
     if not os.path.isdir(dir_path):
         print(f"❌ 디렉토리를 찾을 수 없습니다: {dir_path}")
         sys.exit(1)
+
+    # 마이그레이션 안내
+    if not recognizer.known_embeddings and os.path.exists(recognizer._encoding_file):
+        print("⚠ 기존 인코딩이 새 엔진(InsightFace)과 호환되지 않습니다.")
+        print("  기존 등록 사진으로 다시 등록해주세요.")
+        print()
 
     extensions = ("*.jpg", "*.jpeg", "*.png", "*.bmp")
     images = []
@@ -148,12 +166,12 @@ def register_directory(name, dir_path, face_data_dir):
     print(f"\n✅ 총 {count}/{len(images)}장 등록 완료: {name}")
 
 
-def list_registered(face_data_dir):
+def list_registered(config):
     """등록된 사용자 목록"""
     from modules.face_recognizer import FaceRecognizer
 
     try:
-        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+        recognizer = FaceRecognizer(config)
     except RuntimeError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -164,15 +182,15 @@ def list_registered(face_data_dir):
     else:
         print("📋 등록된 사용자:")
         for name, count in registered.items():
-            print(f"  👤 {name} ({count}개 인코딩)")
+            print(f"  👤 {name} ({count}개 임베딩)")
 
 
-def delete_user(name, face_data_dir):
+def delete_user(name, config):
     """사용자 삭제"""
     from modules.face_recognizer import FaceRecognizer
 
     try:
-        recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+        recognizer = FaceRecognizer(config)
     except RuntimeError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -213,21 +231,19 @@ def main():
     )
 
     config = load_config(args.config)
-    face_data_dir = config.get("face_data_dir", "./registered_faces")
-    os.makedirs(face_data_dir, exist_ok=True)
 
     if args.list:
-        list_registered(face_data_dir)
+        list_registered(config)
     elif args.delete:
-        delete_user(args.delete, face_data_dir)
+        delete_user(args.delete, config)
     elif args.name:
         camera_index = config.get("camera_index", 0)
         if args.dir:
-            register_directory(args.name, args.dir, face_data_dir)
+            register_directory(args.name, args.dir, config)
         elif args.image:
-            register_image(args.name, args.image, face_data_dir)
+            register_image(args.name, args.image, config)
         else:
-            register_camera(args.name, face_data_dir, camera_index)
+            register_camera(args.name, config, camera_index)
     else:
         parser.print_help()
 

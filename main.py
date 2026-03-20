@@ -79,8 +79,7 @@ def cmd_register(args):
 
     from modules.face_recognizer import FaceRecognizer
 
-    face_data_dir = config.get("face_data_dir", "./registered_faces")
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    recognizer = FaceRecognizer(config)
 
     if args.image:
         # 이미지 파일에서 등록
@@ -152,8 +151,7 @@ def cmd_list(args):
 
     from modules.face_recognizer import FaceRecognizer
 
-    face_data_dir = config.get("face_data_dir", "./registered_faces")
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    recognizer = FaceRecognizer(config)
 
     registered = recognizer.list_registered()
     if not registered:
@@ -161,7 +159,7 @@ def cmd_list(args):
     else:
         print("📋 등록된 사용자:")
         for name, count in registered.items():
-            print(f"  👤 {name} ({count}개 인코딩)")
+            print(f"  👤 {name} ({count}개 임베딩)")
 
 
 def cmd_delete(args):
@@ -170,8 +168,7 @@ def cmd_delete(args):
 
     from modules.face_recognizer import FaceRecognizer
 
-    face_data_dir = config.get("face_data_dir", "./registered_faces")
-    recognizer = FaceRecognizer(face_data_dir=face_data_dir)
+    recognizer = FaceRecognizer(config)
 
     try:
         recognizer.delete(args.name)
