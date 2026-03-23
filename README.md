@@ -201,6 +201,69 @@ journalctl --user -u screenwatcher -f
 | `also_capture_screen` | 스크린 캡쳐도 함께 저장 | `false` |
 | `show_preview` | 미리보기 창 표시 (디버그용) | `false` |
 | `process_interval` | 프레임 처리 간격 (초) | `0.5` |
+| `idle_interval` | 얼굴 미감지 시 처리 간격 (초) | `2.0` |
+| `motion_threshold` | 프레임 변화 감지 임계값 (0~255) | `5.0` |
+| `recognition_cache_ttl` | 인식 결과 캐시 유지 시간 (초) | `3.0` |
+| `onnx_threads` | ONNX Runtime CPU 스레드 수 | `2` |
+
+## 성능 튜닝
+
+CPU/메모리 사용량의 **~95%는 C++ 네이티브 추론 엔진** (ONNX Runtime, MediaPipe, OpenCV)이 차지합니다.
+Python 자체의 오버헤드는 미미합니다.
+
+### 최적화 전략
+
+이 프로그램은 다음 4가지 전략으로 불필요한 추론을 최소화합니다:
+
+| 전략 | 설명 | 관련 설정 |
+|------|------|-----------|
+| **적응적 인터벌** | 얼굴 미감지 시 폴링 속도를 늦춤 | `idle_interval` |
+| **프레임 변화 감지** | 카메라 장면이 변하지 않으면 InsightFace 호출 건너뜀 | `motion_threshold` |
+| **인식 캐시** | 같은 위치의 얼굴 결과를 일정 시간 재사용 | `recognition_cache_ttl` |
+| **ONNX 스레드 제한** | CPU 코어 점유를 제한 | `onnx_threads` |
+
+### 사용 환경별 권장 설정
+
+**최소 CPU (저사양 노트북):**
+```yaml
+process_interval: 1.0
+idle_interval: 3.0
+motion_threshold: 8.0
+recognition_cache_ttl: 5.0
+onnx_threads: 1
+insightface_det_size: 320
+insightface_model: "buffalo_sc"
+```
+
+**균형 (기본 — 일반 업무용 노트북):**
+```yaml
+process_interval: 0.5
+idle_interval: 2.0
+motion_threshold: 5.0
+recognition_cache_ttl: 3.0
+onnx_threads: 2
+insightface_det_size: 640
+insightface_model: "buffalo_l"
+```
+
+**빠른 반응 (데스크톱, 정확도 우선):**
+```yaml
+process_interval: 0.3
+idle_interval: 1.0
+motion_threshold: 3.0
+recognition_cache_ttl: 1.5
+onnx_threads: 4
+insightface_det_size: 640
+insightface_model: "buffalo_l"
+```
+
+### 가장 효과적인 CPU 절감 방법 (순서대로)
+
+1. **`insightface_det_size: 320`** — 감지 해상도를 절반으로 낮춤 (CPU ~60% 절감)
+2. **`insightface_model: "buffalo_sc"`** — 경량 모델 사용 (메모리 ~80% 절감, 326MB → 16MB)
+3. **`onnx_threads: 1`** — 단일 스레드로 다른 프로그램과의 경합 방지
+4. **`idle_interval: 3.0`** — 빈 자리에서 CPU 낭비 방지
+5. **`process_interval: 1.0`** — 전체 처리 빈도 감소
 
 ## 디렉토리 구조
 

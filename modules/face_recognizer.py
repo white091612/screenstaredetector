@@ -12,6 +12,13 @@ import time
 
 import cv2
 import numpy as np
+
+# ONNX 스레드 제한은 세션 생성 전에 환경 변수로 설정해야 함
+# (FaceAnalysis.prepare()가 내부적으로 세션을 생성하므로 import 전에 설정)
+import os as _os
+_onnx_threads = _os.environ.get("ONNX_THREADS_OVERRIDE")  # 외부 override 가능
+
+import onnxruntime
 from insightface.app import FaceAnalysis
 
 logger = logging.getLogger(__name__)
@@ -29,6 +36,17 @@ class FaceRecognizer:
         self._threshold = config.get("face_recognition_threshold", 0.4)
         os.makedirs(self.face_data_dir, exist_ok=True)
 
+        # ONNX Runtime 스레드 수 제한 (CPU 사용량 감소)
+        # 환경 변수로 설정해야 FaceAnalysis 내부 세션 생성 시 적용됨
+        onnx_threads = config.get("onnx_threads", 2)
+        if _onnx_threads is not None:
+            onnx_threads = int(_onnx_threads)
+        _os.environ["OMP_NUM_THREADS"] = str(onnx_threads)
+        _os.environ["OPENBLAS_NUM_THREADS"] = str(onnx_threads)
+        _os.environ["MKL_NUM_THREADS"] = str(onnx_threads)
+
+        onnxruntime.set_default_logger_severity(3)  # WARNING만
+
         # InsightFace 초기화
         model_name = config.get("insightface_model", "buffalo_l")
         det_size = config.get("insightface_det_size", 640)
@@ -43,7 +61,10 @@ class FaceRecognizer:
             det_size=(det_size, det_size),
             det_thresh=0.5,
         )
-        logger.info(f"InsightFace 초기화 완료: {model_name}, det_size={det_size}")
+        logger.info(
+            f"InsightFace 초기화 완료: {model_name}, det_size={det_size}, "
+            f"onnx_threads={onnx_threads} (OMP_NUM_THREADS)"
+        )
 
         # 등록 데이터
         self.known_embeddings = []          # list of np.ndarray (512,)
@@ -51,9 +72,11 @@ class FaceRecognizer:
         self._known_matrix = np.empty((0, 512))  # (N, 512) 행렬
         self._load()
 
+        # 캐시 TTL (config에서 조절 가능)
+        self._cache_ttl = config.get("recognition_cache_ttl", 3.0)
+
         # bbox 레벨 캐시 (is_registered_user 용)
         self._cache = {}          # {bbox_key: (name_or_None, timestamp)}
-        self._cache_ttl = 2.0     # 캐시 유효 시간 (초)
 
         # 프레임 레벨 캐시 (identify_all_faces 용)
         self._frame_cache = None       # list of identity dicts

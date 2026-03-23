@@ -87,3 +87,21 @@ process_interval: 0.5
 
 # 미리보기 창 표시 (디버그용)
 show_preview: false
+
+# --- 성능 튜닝 ---
+# 얼굴 미감지 시 처리 간격 (초). 아무도 없으면 느리게 폴링하여 CPU 절약
+# process_interval=0.5이면 얼굴 있을 때 0.5초, 없을 때 idle_interval초
+idle_interval: 2.0
+
+# 프레임 변화 감지 임계값 (0~255). 이 값 이하의 변화는 무시하고 캐시된 결과 사용
+# 낮을수록 민감 (작은 움직임도 감지), 높을수록 둔감 (CPU 절약)
+# 권장: 3.0 (민감) ~ 8.0 (절약)
+motion_threshold: 5.0
+
+# 인식 결과 캐시 유지 시간 (초). 같은 위치의 얼굴 결과를 재사용
+# 높을수록 CPU 절약, 낮을수록 빠른 반응
+recognition_cache_ttl: 3.0
+
+# ONNX Runtime 스레드 수 (InsightFace 추론용)
+# 1 = 최소 CPU (느림), 2 = 균형 (권장), 4 = 빠름 (CPU 높음)
+onnx_threads: 2

@@ -70,6 +70,18 @@ class Monitor:
         self.process_interval = config.get("process_interval", 0.5)
         self.show_preview = config.get("show_preview", False)
 
+        # --- 적응적 인터벌 (성능 최적화) ---
+        # 얼굴이 없으면 idle_interval로 느려지고, 얼굴 감지 시 process_interval로 복귀
+        self._idle_interval = config.get("idle_interval", 2.0)
+        self._current_interval = self.process_interval
+        self._no_face_count = 0    # 연속 얼굴 미감지 횟수
+        self._idle_threshold = 3   # 이 횟수 이상 미감지 시 idle 모드
+
+        # --- 프레임 변화 감지 (InsightFace 호출 최소화) ---
+        self._prev_gray = None
+        self._motion_threshold = config.get("motion_threshold", 5.0)
+        self._last_identities = []  # no-motion 시 재사용할 이전 결과
+
         # --- 상태 ---
         self._running = False
         self._last_capture_time = 0
@@ -112,11 +124,34 @@ class Monitor:
         try:
             while self._running:
                 self._process_frame()
-                time.sleep(self.process_interval)
+                time.sleep(self._current_interval)
         except KeyboardInterrupt:
             logger.info("사용자에 의해 중단됨 (Ctrl+C)")
         finally:
             self.stop()
+
+    def _has_significant_motion(self, frame):
+        """
+        이전 프레임 대비 유의미한 변화가 있는지 확인합니다.
+        변화가 없으면 InsightFace 추론을 건너뛸 수 있습니다.
+
+        Returns:
+            bool: 유의미한 변화가 있으면 True
+        """
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # 비교 속도를 위해 160x120으로 축소
+        small = cv2.resize(gray, (160, 120))
+
+        if self._prev_gray is None:
+            self._prev_gray = small
+            return True  # 첫 프레임은 항상 처리
+
+        # 프레임 간 절대 차이의 평균
+        diff = cv2.absdiff(self._prev_gray, small)
+        mean_diff = diff.mean()
+        self._prev_gray = small
+
+        return mean_diff > self._motion_threshold
 
     def _match_identity(self, gaze_bbox, all_face_identities):
         """
@@ -165,11 +200,39 @@ class Monitor:
 
         display_frame = frame.copy() if self.show_preview else None
 
-        # 1단계: 시선 추정 (모든 얼굴의 방향 파악)
+        # 1단계: 시선 추정 (모든 얼굴의 방향 파악) — 가벼움
         faces = self.gaze_estimator.estimate(frame)
 
-        # 2단계: InsightFace로 전체 프레임 한번에 분석 (모든 얼굴 임베딩 추출)
-        all_face_identities = self.face_recognizer.identify_all_faces(frame)
+        # 적응적 인터벌: 얼굴이 없으면 점점 느리게
+        if not faces:
+            self._no_face_count += 1
+            if self._no_face_count >= self._idle_threshold:
+                self._current_interval = self._idle_interval
+            # 얼굴 없으면 InsightFace도 불필요
+            if self.show_preview and display_frame is not None:
+                cv2.putText(
+                    display_frame,
+                    f"No faces | idle ({self._current_interval:.1f}s)",
+                    (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (128, 128, 128), 1,
+                )
+                cv2.imshow("Screen Watcher [DEBUG] - ESC to quit", display_frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27 or key == ord("q"):
+                    self._running = False
+            return
+
+        # 얼굴 감지 → 정상 속도 복귀
+        self._no_face_count = 0
+        self._current_interval = self.process_interval
+
+        # 2단계: 프레임 변화 감지 — 변화 없으면 InsightFace 호출 자체를 건너뜀
+        has_motion = self._has_significant_motion(frame)
+        if has_motion:
+            all_face_identities = self.face_recognizer.identify_all_faces(frame)
+            self._last_identities = all_face_identities  # 다음 no-motion 시 재사용
+        else:
+            # 프레임 변화 없음 → 이전 결과 재사용 (InsightFace 호출 안 함)
+            all_face_identities = getattr(self, '_last_identities', None) or []
 
         # 3단계: gaze_estimator bbox와 InsightFace bbox 매칭
         has_registered_looking = False   # 화면 보는 등록자 있는지
