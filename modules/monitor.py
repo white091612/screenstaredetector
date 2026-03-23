@@ -82,6 +82,16 @@ class Monitor:
         self._motion_threshold = config.get("motion_threshold", 5.0)
         self._last_identities = []  # no-motion 시 재사용할 이전 결과
 
+        # --- 미등록자 확인 모드 (오탐 방지) ---
+        # 미등록 의심 시 바로 잠금하지 않고 confirm_duration 동안 재확인
+        self._confirm_interval = config.get("confirm_interval", 0.5)
+        self._confirm_duration = config.get("confirm_duration", 2.0)
+        self._confirm_threshold = config.get("confirm_threshold", 3)
+        self._confirming = False
+        self._confirm_start_time = 0
+        self._confirm_unknown_count = 0
+        self._confirm_total_count = 0
+
         # --- 상태 ---
         self._running = False
         self._last_capture_time = 0
@@ -116,6 +126,11 @@ class Monitor:
         logger.info(f"  🔒 화면 잠금  : {'활성' if lock_enabled else '비활성'} (쿨다운: {lock_cooldown}초)")
         logger.info(f"  🖥 미리보기   : {'활성' if self.show_preview else '비활성'}")
         logger.info(f"  👤 등록 사용자 : {len(self.face_recognizer.known_embeddings)}개 임베딩")
+        logger.info(
+            f"  🔍 미등록 확인 : {self._confirm_duration}초간 "
+            f"{self._confirm_interval}초 간격, "
+            f"{self._confirm_threshold}회 이상 시 확정"
+        )
         logger.info("=" * 55)
 
         self._running = True
@@ -206,6 +221,9 @@ class Monitor:
         # 적응적 인터벌: 얼굴이 없으면 점점 느리게
         if not faces:
             self._no_face_count += 1
+            if self._confirming:
+                logger.debug("확인 모드 중 얼굴 사라짐 — 확인 해제")
+                self._reset_confirmation()
             if self._no_face_count >= self._idle_threshold:
                 self._current_interval = self._idle_interval
             # 얼굴 없으면 InsightFace도 불필요
@@ -221,18 +239,26 @@ class Monitor:
                     self._running = False
             return
 
-        # 얼굴 감지 → 정상 속도 복귀
+        # 얼굴 감지 → 정상 속도 복귀 (확인 모드 중이면 유지)
         self._no_face_count = 0
-        self._current_interval = self.process_interval
+        if not self._confirming:
+            self._current_interval = self.process_interval
 
-        # 2단계: 프레임 변화 감지 — 변화 없으면 InsightFace 호출 자체를 건너뜀
-        has_motion = self._has_significant_motion(frame)
-        if has_motion:
-            all_face_identities = self.face_recognizer.identify_all_faces(frame)
-            self._last_identities = all_face_identities  # 다음 no-motion 시 재사용
+        # 2단계: InsightFace 얼굴 인식
+        if self._confirming:
+            # 확인 모드: 캐시/모션 무시, 매번 새로운 결과 필요
+            all_face_identities = self.face_recognizer.identify_all_faces(
+                frame, force_fresh=True
+            )
+            self._last_identities = all_face_identities
         else:
-            # 프레임 변화 없음 → 이전 결과 재사용 (InsightFace 호출 안 함)
-            all_face_identities = getattr(self, '_last_identities', None) or []
+            # 일반 모드: 프레임 변화 감지로 불필요한 호출 건너뜀
+            has_motion = self._has_significant_motion(frame)
+            if has_motion:
+                all_face_identities = self.face_recognizer.identify_all_faces(frame)
+                self._last_identities = all_face_identities
+            else:
+                all_face_identities = self._last_identities or []
 
         # 3단계: gaze_estimator bbox와 InsightFace bbox 매칭
         has_registered_looking = False   # 화면 보는 등록자 있는지
@@ -303,9 +329,8 @@ class Monitor:
             else:
                 has_unknown_looking = True
 
-        # 4단계: 캡쳐/잠금 판정
-        # 미등록자가 화면을 보고 있고, 등록자가 화면을 보고 있지 않을 때만 캡쳐
-        if has_unknown_looking and not has_registered_looking:
+        # 4단계: 미등록자 확인 및 판정
+        if self._check_confirmation(has_unknown_looking, has_registered_looking):
             self._handle_unknown_face(frame)
 
         # --- 디버그 미리보기 표시 ---
@@ -316,6 +341,12 @@ class Monitor:
                 f"Faces: {len(faces)}",
                 f"Captures: {self._unknown_count}",
             ]
+            if self._confirming:
+                elapsed = time.time() - self._confirm_start_time
+                status_items.append(
+                    f"Confirm: {self._confirm_unknown_count}/{self._confirm_threshold} "
+                    f"({elapsed:.1f}s)"
+                )
             status = " | ".join(status_items)
             cv2.putText(
                 display_frame,
@@ -330,6 +361,80 @@ class Monitor:
             key = cv2.waitKey(1) & 0xFF
             if key == 27 or key == ord("q"):  # ESC 또는 Q로 종료
                 self._running = False
+
+    def _check_confirmation(self, has_unknown_looking, has_registered_looking):
+        """
+        미등록자 확인 모드를 관리합니다.
+
+        미등록 의심 시 즉시 잠금하지 않고, confirm_duration 동안
+        confirm_interval 간격으로 재확인하여 confirm_threshold 회 이상
+        미등록으로 판정되면 확정합니다.
+
+        Returns:
+            bool: 미등록 사용자 확정 시 True
+        """
+        now = time.time()
+
+        if has_unknown_looking and not has_registered_looking:
+            if not self._confirming:
+                # 첫 미등록 감지 → 확인 모드 진입
+                self._confirming = True
+                self._confirm_start_time = now
+                self._confirm_unknown_count = 1
+                self._confirm_total_count = 1
+                self._current_interval = self._confirm_interval
+                logger.info(
+                    f"⚠ 미등록 사용자 의심 — 확인 모드 진입 "
+                    f"({self._confirm_duration}초간 재확인)"
+                )
+                return False
+            else:
+                self._confirm_unknown_count += 1
+                self._confirm_total_count += 1
+        elif self._confirming:
+            # 등록자 확인됨 or 미등록자 사라짐 → 미등록 아닌 결과 기록
+            self._confirm_total_count += 1
+        else:
+            return False
+
+        # 확인 기간 만료 체크
+        if not self._confirming:
+            return False
+
+        elapsed = now - self._confirm_start_time
+        if elapsed < self._confirm_duration:
+            logger.debug(
+                f"확인 중: {self._confirm_unknown_count}/{self._confirm_threshold} "
+                f"미등록 ({elapsed:.1f}/{self._confirm_duration}초)"
+            )
+            return False
+
+        # 확인 기간 만료 → 최종 판정
+        confirmed = self._confirm_unknown_count >= self._confirm_threshold
+        if confirmed:
+            logger.warning(
+                f"⚠ 미등록 사용자 확정! "
+                f"({self._confirm_total_count}회 중 "
+                f"{self._confirm_unknown_count}회 미등록)"
+            )
+        else:
+            logger.info(
+                f"확인 완료: 등록 사용자로 판단 "
+                f"(미등록 {self._confirm_unknown_count}회 < "
+                f"임계값 {self._confirm_threshold}회)"
+            )
+        self._reset_confirmation()
+        return confirmed
+
+    def _reset_confirmation(self):
+        """확인 모드를 초기화합니다."""
+        was_confirming = self._confirming
+        self._confirming = False
+        self._confirm_start_time = 0
+        self._confirm_unknown_count = 0
+        self._confirm_total_count = 0
+        if was_confirming:
+            self._current_interval = self.process_interval
 
     def _handle_unknown_face(self, frame):
         """미등록 사용자 감지를 처리합니다: 캡쳐 + 화면 잠금"""

@@ -81,17 +81,37 @@ face_data_dir: "./registered_faces"
 capture_dir: "./captures"
 log_file: "screenwatcher.log"
 
-# --- 처리 설정 ---
-# 프레임 처리 간격 (초, 낮을수록 자주 확인하지만 CPU 사용량 증가)
-process_interval: 0.5
+# --- 처리 간격 (Intervals) ---
+# 상황별로 다른 간격이 적용됩니다:
+#
+#   [얼굴 감지] ─── process_interval (0.5초) ───→ 정상 감시
+#                          │
+#                   미등록자 감지
+#                          ↓
+#   [재확인 중] ─── confirm_interval (0.5초) ───→ confirm_duration동안 반복
+#                          │                      confirm_threshold회 이상 → 잠금
+#                   얼굴 사라짐
+#                          ↓
+#   [얼굴 없음] ─── idle_interval (2.0초) ─────→ CPU 절약 모드
+#
+process_interval: 0.5      # 얼굴 감지 시 기본 처리 간격 (초)
+idle_interval: 2.0         # 얼굴 미감지 시 느린 처리 간격 (초)
+confirm_interval: 0.5      # 미등록자 재확인 간격 (초)
+
+# --- 미등록자 확인 ---
+# 미등록자 감지 즉시 잠금하지 않고, 재확인하여 오탐을 방지합니다.
+# confirm_duration(초) 동안 confirm_interval 간격으로 확인하여
+# confirm_threshold(회) 이상 미등록으로 나오면 확정합니다.
+#
+# 예: duration=2.0, interval=0.5 → 최대 4회 확인
+#     threshold=3 → 4회 중 3회 이상 미등록이면 잠금
+confirm_duration: 2.0      # 재확인 지속 시간 (초)
+confirm_threshold: 3       # 미등록 확정 최소 횟수
 
 # 미리보기 창 표시 (디버그용)
 show_preview: false
 
 # --- 성능 튜닝 ---
-# 얼굴 미감지 시 처리 간격 (초). 아무도 없으면 느리게 폴링하여 CPU 절약
-# process_interval=0.5이면 얼굴 있을 때 0.5초, 없을 때 idle_interval초
-idle_interval: 2.0
 
 # 프레임 변화 감지 임계값 (0~255). 이 값 이하의 변화는 무시하고 캐시된 결과 사용
 # 낮을수록 민감 (작은 움직임도 감지), 높을수록 둔감 (CPU 절약)

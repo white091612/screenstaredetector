@@ -26,7 +26,9 @@
                                          ↓
                        미등록자가 화면 봄 AND 등록자가 화면 안 봄
                                          ↓
-                              📸 캡쳐 + 🔒 화면 잠금
+                              � 확인 모드 (2초간 0.5초 간격 재확인)
+                                         ↓ 3회 이상 미등록 확인
+                              �📸 캡쳐 + 🔒 화면 잠금
 ```
 
 ## 설치
@@ -200,8 +202,11 @@ journalctl --user -u screenwatcher -f
 | `camera_index` | 카메라 장치 번호 | `0` |
 | `also_capture_screen` | 스크린 캡쳐도 함께 저장 | `false` |
 | `show_preview` | 미리보기 창 표시 (디버그용) | `false` |
-| `process_interval` | 프레임 처리 간격 (초) | `0.5` |
-| `idle_interval` | 얼굴 미감지 시 처리 간격 (초) | `2.0` |
+| `process_interval` | 얼굴 감지 시 기본 처리 간격 (초) | `0.5` |
+| `idle_interval` | 얼굴 미감지 시 느린 처리 간격 (초) | `2.0` |
+| `confirm_interval` | 미등록자 재확인 간격 (초) | `0.5` |
+| `confirm_duration` | 미등록자 재확인 지속 시간 (초) | `2.0` |
+| `confirm_threshold` | 미등록 확정 최소 횟수 | `3` |
 | `motion_threshold` | 프레임 변화 감지 임계값 (0~255) | `5.0` |
 | `recognition_cache_ttl` | 인식 결과 캐시 유지 시간 (초) | `3.0` |
 | `onnx_threads` | ONNX Runtime CPU 스레드 수 | `2` |

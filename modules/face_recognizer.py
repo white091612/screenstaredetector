@@ -322,19 +322,24 @@ class FaceRecognizer:
     # 인식: 전체 프레임 (다중 인물)
     # ------------------------------------------------------------------
 
-    def identify_all_faces(self, frame):
+    def identify_all_faces(self, frame, force_fresh=False):
         """
         전체 프레임에서 모든 얼굴을 한번에 감지하고 신원을 확인합니다.
         개별 crop 대신 전체 프레임을 InsightFace에 전달하여
         작은 얼굴도 안정적으로 감지·인식합니다.
 
         프레임 레벨 캐시: cache_ttl 이내면 이전 결과 반환.
+        force_fresh=True면 캐시를 무시하고 새로 분석.
+
+        Args:
+            frame: BGR 이미지 (numpy array)
+            force_fresh: True면 캐시 무시 (확인 모드 등)
 
         Returns:
             list of dict: [{"bbox": (x1,y1,x2,y2), "name": str|None, "similarity": float}, ...]
         """
         now = time.time()
-        if self._frame_cache is not None and (now - self._frame_cache_time) < self._cache_ttl:
+        if not force_fresh and self._frame_cache is not None and (now - self._frame_cache_time) < self._cache_ttl:
             return self._frame_cache
 
         faces = self._app.get(frame)
